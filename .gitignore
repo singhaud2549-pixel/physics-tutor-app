@@ -5,3 +5,5 @@
 .DS_Store
 npm-debug.log*
 physics-tutor-app/
+.vercel
+.env*
