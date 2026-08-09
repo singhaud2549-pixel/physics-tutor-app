@@ -480,6 +480,42 @@ code {
   font-weight: 600;
 }
 
+.bubble.blocked {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.auth-gate {
+  margin-top: 16px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+}
+
+.auth-gate p {
+  font-size: 15px;
+  color: #92400e;
+  margin-bottom: 12px;
+}
+
+.auth-gate-btn {
+  display: inline-block;
+  background: #d97706;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+.auth-gate-btn:hover {
+  background: #b45309;
+}
+
 .label {
   font-size: 12px;
   font-weight: 700;

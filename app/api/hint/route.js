@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import { getFull, imageDiskPath } from "../../../lib/problems";
+import { createServerSupabase } from "../../../lib/supabaseServer";
+
+const HINT_DAILY_LIMIT_PER_USER = Number(process.env.HINT_DAILY_LIMIT_PER_USER || 60);
+const HINT_DAILY_LIMIT_TOTAL = Number(process.env.HINT_DAILY_LIMIT_TOTAL || 500);
 
 // สตรีมคำใบ้ทีละคำ → เด็กเห็นตัวอักษรแรกใน ~1 วิ แทนที่จะจ้องหน้าเปล่า 7 วิ
 export const maxDuration = 60;
@@ -63,6 +67,20 @@ const SYSTEM_PROMPT = `คุณคือ "พี่" นักศึกษา�
 
 export async function POST(request) {
   try {
+    // ต้องล็อกอินก่อนถึงจะใช้ /api/hint ได้ — กันคนแปลกหน้ายิงฟรีไม่จำกัด
+    const authHeader = request.headers.get("authorization") || "";
+    const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const sb = accessToken ? createServerSupabase(accessToken) : null;
+    const {
+      data: { user } = {},
+    } = sb ? await sb.auth.getUser(accessToken) : { data: {} };
+    if (!user) {
+      return Response.json(
+        { error: "auth_required", message: "ต้องเข้าสู่ระบบก่อนขอคำใบ้นะ" },
+        { status: 401 },
+      );
+    }
+
     const {
       problemId,
       studentAnswer,
@@ -101,6 +119,32 @@ export async function POST(request) {
         { hint: "ยังไม่ได้ตั้งค่า API key — เปิดไฟล์ .env.local แล้วใส่ ANTHROPIC_API_KEY ก่อนนะ" },
         { status: 200 },
       );
+    }
+
+    // นับโควตาแบบ atomic (เฉพาะครั้งที่กำลังจะเรียก Claude จริง — ไม่นับตอนตอบถูกที่คืนฟรีไปแล้วด้านบน)
+    const { data: usage, error: usageErr } = await sb.rpc("increment_hint_usage");
+    const { user_count, total_count } = usage?.[0] || {};
+    if (usageErr) {
+      console.error("increment_hint_usage error:", usageErr);
+    } else {
+      if (user_count > HINT_DAILY_LIMIT_PER_USER) {
+        return Response.json(
+          {
+            error: "rate_limited",
+            message: `วันนี้ใช้คำใบ้ครบ ${HINT_DAILY_LIMIT_PER_USER} ครั้งแล้วนะ พรุ่งนี้มาใหม่ได้เลย`,
+          },
+          { status: 429 },
+        );
+      }
+      if (total_count > HINT_DAILY_LIMIT_TOTAL) {
+        return Response.json(
+          {
+            error: "capacity",
+            message: "ตอนนี้มีคนขอคำใบ้เยอะมาก ระบบไม่ว่างชั่วคราว ลองใหม่อีกสักครู่นะ",
+          },
+          { status: 503 },
+        );
+      }
     }
 
     const client = new Anthropic();

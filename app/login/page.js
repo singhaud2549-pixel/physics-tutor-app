@@ -33,7 +33,9 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
-        router.push("/");
+        // ล็อกอินสำเร็จ → กลับไปหน้าที่มาจาก (เช่นหน้าโจทย์ที่ถูกเด้งมา) ถ้ามี ไม่งั้นกลับหน้าแรกเหมือนเดิม
+        const next = new URLSearchParams(window.location.search).get("next");
+        router.push(next && next.startsWith("/") ? next : "/");
       }
     } catch (err) {
       setMsg("ผิดพลาด: " + (err?.message || "ลองใหม่อีกครั้ง"));

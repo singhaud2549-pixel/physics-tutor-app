@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
@@ -12,6 +12,26 @@ export default function ProblemClient({ problem }) {
   const [streaming, setStreaming] = useState(false); // เริ่มมีตัวอักษรไหลออกมาแล้ว
   const [solved, setSolved] = useState(false);
   const [nextRec, setNextRec] = useState(null); // โจทย์ที่แนะนำข้อต่อไป
+
+  // ต้องล็อกอินก่อนถึงจะทำโจทย์ได้ (กันคนแปลกหน้ายิง /api/hint ฟรี)
+  const [authReady, setAuthReady] = useState(false);
+  const [accessToken, setAccessToken] = useState(null);
+  const [dailyLimitReached, setDailyLimitReached] = useState(false); // ครบ 60 ครั้ง/วันแล้ว
+
+  useEffect(() => {
+    if (!isSupabaseReady) {
+      setAuthReady(true);
+      return;
+    }
+    supabase.auth.getSession().then(({ data }) => {
+      setAccessToken(data?.session?.access_token ?? null);
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setAccessToken(session?.access_token ?? null);
+    });
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
 
   const isChoice = problem.kind === "choice";
 
@@ -69,9 +89,30 @@ export default function ProblemClient({ problem }) {
     try {
       const res = await fetch("/api/hint", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ ...body, problemId: problem.id }),
       });
+
+      // ถูกบล็อก (ไม่ได้ล็อกอิน / เกินโควตา / ระบบเต็ม) → เซิร์ฟเวอร์ตอบ JSON พร้อม status ไม่ใช่ 2xx
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "auth_required") {
+          // token หมดอายุกลางคัน → เด้งกลับไปหน้า guest-gate
+          setAccessToken(null);
+        } else if (data.error === "rate_limited") {
+          setDailyLimitReached(true);
+          setThread((t) => [...t, { role: "blocked", text: data.message }]);
+        } else {
+          setThread((t) => [
+            ...t,
+            { role: "blocked", text: data.message || "ขออภัย ระบบมีปัญหาชั่วคราว ลองใหม่อีกครั้งนะ" },
+          ]);
+        }
+        return;
+      }
 
       // ตอบถูก / มีข้อผิดพลาด → เซิร์ฟเวอร์ส่ง JSON กลับมาทีเดียว (ไม่เรียก AI)
       const isJson = (res.headers.get("content-type") || "").includes("json");
@@ -135,7 +176,7 @@ export default function ProblemClient({ problem }) {
   async function submit(e) {
     e.preventDefault();
     const value = answer.trim();
-    if (!value || loading || solved) return;
+    if (!value || loading || solved || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     setAnswer("");
@@ -147,7 +188,7 @@ export default function ProblemClient({ problem }) {
 
   // ปรนัย: เลือกข้อ A-E
   async function choose(letter) {
-    if (loading || solved) return;
+    if (loading || solved || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [
       ...t,
@@ -160,7 +201,7 @@ export default function ProblemClient({ problem }) {
   }
 
   async function askForHint() {
-    if (loading || solved) return;
+    if (loading || solved || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [...t, { role: "ask", text: "ขอคำใบ้หน่อย 🙏" }]);
     await callHint({ requestHint: true, priorAttempts, priorHints });
@@ -194,51 +235,65 @@ export default function ProblemClient({ problem }) {
           </p>
         )}
 
-        {isChoice ? (
-          <div className="choice-list">
-            {problem.choices.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                className="choice-btn"
-                onClick={() => choose(c.key)}
-                disabled={loading || solved}
-              >
-                <span className="choice-key">{c.key}</span>
-                <span className="choice-text">
-                  <MathText>{c.text}</MathText>
-                </span>
-              </button>
-            ))}
+        {!authReady ? null : !accessToken ? (
+          <div className="auth-gate">
+            <p>ต้องเข้าสู่ระบบก่อนเริ่มทำโจทย์นี้นะ (กันคนแปลกหน้ามาใช้ AI ฟรี)</p>
+            <Link
+              href={`/login?next=${encodeURIComponent(`/problem/${problem.id}`)}`}
+              className="auth-gate-btn"
+            >
+              เข้าสู่ระบบ →
+            </Link>
           </div>
         ) : (
-          <form className="answer-row" onSubmit={submit}>
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="พิมพ์คำตอบเป็นตัวเลข"
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              disabled={solved}
-            />
-            <button type="submit" disabled={loading || solved}>
-              {solved ? "ผ่านแล้ว ✓" : "ส่งคำตอบ"}
-            </button>
-          </form>
-        )}
+          <>
+            {isChoice ? (
+              <div className="choice-list">
+                {problem.choices.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    className="choice-btn"
+                    onClick={() => choose(c.key)}
+                    disabled={loading || solved || dailyLimitReached}
+                  >
+                    <span className="choice-key">{c.key}</span>
+                    <span className="choice-text">
+                      <MathText>{c.text}</MathText>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <form className="answer-row" onSubmit={submit}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="พิมพ์คำตอบเป็นตัวเลข"
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  disabled={solved || dailyLimitReached}
+                />
+                <button type="submit" disabled={loading || solved || dailyLimitReached}>
+                  {solved ? "ผ่านแล้ว ✓" : "ส่งคำตอบ"}
+                </button>
+              </form>
+            )}
 
-        {!solved && (
-          <button
-            type="button"
-            className="hint-btn"
-            onClick={askForHint}
-            disabled={loading}
-          >
-            💡 คิดไม่ออก ขอคำใบ้
-          </button>
-        )}
+            {!solved && (
+              <button
+                type="button"
+                className="hint-btn"
+                onClick={askForHint}
+                disabled={loading || dailyLimitReached}
+              >
+                💡 คิดไม่ออก ขอคำใบ้
+              </button>
+            )}
 
-        {loading && !streaming && <p className="loading">พี่กำลังคิดคำใบ้…</p>}
+            {loading && !streaming && <p className="loading">พี่กำลังคิดคำใบ้…</p>}
+          </>
+        )}
       </div>
 
       {thread.length > 0 && (
@@ -252,7 +307,9 @@ export default function ProblemClient({ problem }) {
                     ? "ถูกต้อง"
                     : m.role === "ask"
                       ? "ฉัน"
-                      : "คำใบ้จากพี่"}
+                      : m.role === "blocked"
+                        ? "แจ้งเตือน"
+                        : "คำใบ้จากพี่"}
               </div>
               <MathText>{m.text}</MathText>
             </div>
