@@ -3,6 +3,9 @@ import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import { getFull, imageDiskPath } from "../../../lib/problems";
 
+// สตรีมคำใบ้ทีละคำ → เด็กเห็นตัวอักษรแรกใน ~1 วิ แทนที่จะจ้องหน้าเปล่า 7 วิ
+export const maxDuration = 60;
+
 // อ่านไฟล์รูปโจทย์ → บล็อกรูปแบบ base64 สำหรับส่งให้ Claude มอง (คืน null ถ้าไม่มี/อ่านไม่ได้)
 function imageBlock(filename) {
   if (!filename) return null;
@@ -140,20 +143,52 @@ ${
       ? [img, { type: "text", text: context }]
       : context;
 
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model: "claude-opus-4-8",
       max_tokens: 400,
-      system: SYSTEM_PROMPT,
+      // ใส่ cache_control ให้ system prompt — prompt ยาวคงที่ทุกครั้ง
+      // แคชไว้แล้วรอบถัดไปประมวลผลเร็วขึ้นและถูกลง
+      system: [
+        {
+          type: "text",
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [{ role: "user", content: userContent }],
     });
 
-    const hint = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("")
-      .trim();
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta?.type === "text_delta"
+            ) {
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+        } catch (e) {
+          console.error("stream error:", e);
+          // ส่งต่อไม่ได้แล้ว — บอกนักเรียนตรง ๆ ต่อท้ายส่วนที่ใบ้ไปแล้ว
+          controller.enqueue(
+            encoder.encode("\n\n(ขออภัย สัญญาณสะดุด ลองกดขอคำใบ้อีกครั้งนะ)"),
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    });
 
-    return Response.json({ correct: false, hint });
+    return new Response(body, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Accel-Buffering": "no", // กันตัวกลาง buffer ไว้จนหมดแล้วค่อยส่ง
+      },
+    });
   } catch (err) {
     console.error(err);
     return Response.json(

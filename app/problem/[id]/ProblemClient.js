@@ -9,6 +9,7 @@ export default function ProblemClient({ problem }) {
   const [answer, setAnswer] = useState("");
   const [thread, setThread] = useState([]); // {role, text, answer?}
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false); // เริ่มมีตัวอักษรไหลออกมาแล้ว
   const [solved, setSolved] = useState(false);
   const [nextRec, setNextRec] = useState(null); // โจทย์ที่แนะนำข้อต่อไป
 
@@ -71,17 +72,53 @@ export default function ProblemClient({ problem }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...body, problemId: problem.id }),
       });
-      const data = await res.json();
-      if (data.correct) {
-        setThread((t) => [...t, { role: "correct", text: data.message }]);
-        setSolved(true);
-        fetchNext();
-      } else {
-        setThread((t) => [...t, { role: "hint", text: data.hint }]);
+
+      // ตอบถูก / มีข้อผิดพลาด → เซิร์ฟเวอร์ส่ง JSON กลับมาทีเดียว (ไม่เรียก AI)
+      const isJson = (res.headers.get("content-type") || "").includes("json");
+      if (isJson) {
+        const data = await res.json();
+        if (data.correct) {
+          setThread((t) => [...t, { role: "correct", text: data.message }]);
+          setSolved(true);
+          fetchNext();
+        } else {
+          setThread((t) => [...t, { role: "hint", text: data.hint }]);
+        }
+        if (recordInfo) {
+          recordAttempt(recordInfo.answerValue, !!data.correct, recordInfo.hintCount);
+        }
+        return;
       }
-      // บันทึกการตอบ (เฉพาะเวลาตอบจริง ไม่ใช่ตอนกดขอใบ้)
+
+      // ตอบผิด / ขอคำใบ้ → คำใบ้ไหลมาทีละชิ้น ต่อเข้ากล่องเดิมเรื่อย ๆ
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      let opened = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        if (!opened) {
+          opened = true;
+          setStreaming(true); // ตัวอักษรแรกมาแล้ว → เอาข้อความ "กำลังคิด" ออก
+          setThread((t) => [...t, { role: "hint", text: acc }]);
+        } else {
+          setThread((t) => {
+            const copy = [...t];
+            copy[copy.length - 1] = { role: "hint", text: acc };
+            return copy;
+          });
+        }
+      }
+      if (!opened) {
+        setThread((t) => [
+          ...t,
+          { role: "hint", text: "ขออภัย พี่คิดคำใบ้ไม่ออก ลองกดใหม่อีกทีนะ" },
+        ]);
+      }
       if (recordInfo) {
-        recordAttempt(recordInfo.answerValue, !!data.correct, recordInfo.hintCount);
+        recordAttempt(recordInfo.answerValue, false, recordInfo.hintCount);
       }
     } catch (err) {
       setThread((t) => [
@@ -90,6 +127,7 @@ export default function ProblemClient({ problem }) {
       ]);
     } finally {
       setLoading(false);
+      setStreaming(false);
     }
   }
 
@@ -200,7 +238,7 @@ export default function ProblemClient({ problem }) {
           </button>
         )}
 
-        {loading && <p className="loading">พี่กำลังคิดคำใบ้…</p>}
+        {loading && !streaming && <p className="loading">พี่กำลังคิดคำใบ้…</p>}
       </div>
 
       {thread.length > 0 && (
