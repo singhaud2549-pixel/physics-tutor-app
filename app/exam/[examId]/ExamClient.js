@@ -62,9 +62,10 @@ export default function ExamClient({ examId, problems }) {
   const limitMs = examDurationSeconds(problems.length) * 1000;
   // นับเวลาจาก "เวลานาฬิกาจริง" ไม่ใช่นับถอยหลังทีละวินาที
   // (setTimeout โดนเบราว์เซอร์หน่วง/หยุดตอนสลับแอป ทำให้เวลาเดินช้ากว่าจริง)
+  const limitSeconds = examDurationSeconds(problems.length);
   const secondsLeft = startedAt
-    ? Math.max(0, Math.ceil((startedAt + limitMs - now) / 1000))
-    : examDurationSeconds(problems.length);
+    ? Math.min(limitSeconds, Math.max(0, Math.ceil((startedAt + limitMs - now) / 1000)))
+    : limitSeconds;
 
   const total = problems.length;
   const current = problems[index];
