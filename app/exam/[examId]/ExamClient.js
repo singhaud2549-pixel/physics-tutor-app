@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
 
@@ -9,6 +10,29 @@ import MathText from "../../MathText";
 // ไม่ต้องเพิ่ม field ใหม่ในไฟล์โจทย์ — ชุด 30 ข้อจะได้ 90 นาที ตรงกับเวลาสอบ A-Level จริง
 function examDurationSeconds(count) {
   return Math.max(30, count * 3) * 60;
+}
+
+// เก็บความคืบหน้าไว้ในเครื่องนักเรียน — รีเฟรช/เผลอปิดแท็บแล้วกลับมาทำต่อได้ ไม่หายทั้งชุด
+const STORAGE_PREFIX = "physics-exam-progress:";
+
+function loadProgress(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved.startedAt !== "number") return null;
+    return saved;
+  } catch {
+    return null; // localStorage ถูกปิด (โหมดส่วนตัว) หรือข้อมูลเสีย → เริ่มใหม่ตามปกติ
+  }
+}
+
+function clearProgress(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ไม่มีอะไรต้องทำ */
+  }
 }
 
 function formatTime(totalSeconds) {
@@ -19,35 +43,105 @@ function formatTime(totalSeconds) {
 }
 
 export default function ExamClient({ examId, problems }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState({}); // {problemId: value}
   const [index, setIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null); // {total, max, results}
   const [historyNote, setHistoryNote] = useState(null);
-  const [secondsLeft, setSecondsLeft] = useState(() => examDurationSeconds(problems.length));
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
 
-  const startedAtRef = useRef(Date.now());
+  // restored = อ่านความคืบหน้าเก่าจากเครื่องเสร็จแล้ว (ยังไม่เสร็จห้ามเขียนทับของเดิม)
+  const [restored, setRestored] = useState(false);
+  const [startedAt, setStartedAt] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [resumeNote, setResumeNote] = useState(null);
+
+  const storageKey = STORAGE_PREFIX + examId;
+  const limitMs = examDurationSeconds(problems.length) * 1000;
+  // นับเวลาจาก "เวลานาฬิกาจริง" ไม่ใช่นับถอยหลังทีละวินาที
+  // (setTimeout โดนเบราว์เซอร์หน่วง/หยุดตอนสลับแอป ทำให้เวลาเดินช้ากว่าจริง)
+  const secondsLeft = startedAt
+    ? Math.max(0, Math.ceil((startedAt + limitMs - now) / 1000))
+    : examDurationSeconds(problems.length);
 
   const total = problems.length;
   const current = problems[index];
   const isChoice = current.kind === "choice";
+  const answeredCount = Object.keys(answers).length;
 
-  // นับถอยหลัง — หมดเวลาแล้วส่งข้อสอบให้อัตโนมัติ
+  // เปิดหน้ามา → กู้ความคืบหน้าที่ค้างไว้ (ถ้ายังไม่หมดเวลา) ไม่งั้นเริ่มชุดใหม่
   useEffect(() => {
-    if (result) return;
-    if (secondsLeft <= 0) {
-      submitExam(true);
-      return;
+    const saved = loadProgress(storageKey);
+    if (saved && Date.now() < saved.startedAt + limitMs) {
+      const savedAnswers = saved.answers || {};
+      setAnswers(savedAnswers);
+      setIndex(Math.min(saved.index || 0, problems.length - 1));
+      setStartedAt(saved.startedAt);
+      if (Object.keys(savedAnswers).length > 0) {
+        setResumeNote("กลับมาทำต่อได้เลย — คำตอบที่ทำไว้ยังอยู่ครบ ✓ (เวลายังเดินต่อจากเดิมนะ)");
+      }
+    } else {
+      // ไม่มีของค้าง หรือของค้างหมดเวลาไปแล้ว → เริ่มจับเวลาใหม่
+      clearProgress(storageKey);
+      setStartedAt(Date.now());
     }
-    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, result]);
+  }, [storageKey]);
+
+  // ทุกครั้งที่ตอบ/เปลี่ยนข้อ → เซฟทันที (ไม่ต้องกดอะไร)
+  useEffect(() => {
+    if (!restored || result || !startedAt) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ answers, index, startedAt }));
+    } catch {
+      /* เซฟไม่ได้ก็ทำข้อสอบต่อได้ตามปกติ */
+    }
+  }, [answers, index, startedAt, restored, result, storageKey]);
+
+  // เดินนาฬิกา (อ่านเวลาจริงทุกวินาที)
+  useEffect(() => {
+    if (!restored || result || !startedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [restored, result, startedAt]);
+
+  // หมดเวลา → ส่งข้อสอบให้อัตโนมัติ
+  useEffect(() => {
+    if (!restored || result || submitting || !startedAt) return;
+    if (secondsLeft <= 0) submitExam(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft, restored, result, submitting, startedAt]);
+
+  // เตือนก่อนปิด/รีเฟรช — คำตอบไม่หายแล้วก็จริง แต่ "เวลายังเดินอยู่" ต้องให้รู้ตัวก่อน
+  useEffect(() => {
+    if (result || answeredCount === 0) return;
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [result, answeredCount]);
 
   function setAnswer(id, value) {
     setAnswers((a) => ({ ...a, [id]: value }));
+  }
+
+  function leaveExam(e) {
+    e.preventDefault();
+    if (
+      answeredCount > 0 &&
+      !window.confirm(
+        `ออกตอนนี้คำตอบ ${answeredCount} ข้อที่ทำไว้จะถูกเก็บไว้ให้ กลับมาทำต่อได้ ` +
+          `แต่เวลาสอบยังเดินอยู่นะ — ออกเลยไหม`,
+      )
+    ) {
+      return;
+    }
+    router.push("/exam");
   }
 
   // เรียก AI วิเคราะห์แพทเทิร์นข้อที่ตอบผิด (เฉพาะคนที่ล็อกอิน — เหมือนกฎของ /api/hint)
@@ -123,13 +217,14 @@ export default function ExamClient({ examId, problems }) {
     }
     setSubmitting(true);
     try {
-      const durationSeconds = Math.round((Date.now() - startedAtRef.current) / 1000);
+      const durationSeconds = Math.round((Date.now() - (startedAt || Date.now())) / 1000);
       const res = await fetch("/api/exam-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ examSet: examId, answers }),
       }).then((r) => r.json());
       setResult(res); // โชว์คะแนนทันที ไม่ต้องรอ AI วิเคราะห์
+      clearProgress(storageKey); // ส่งแล้ว ไม่ต้องเก็บของค้างอีก
       if (auto) setHistoryNote("หมดเวลาสอบแล้ว — ส่งคำตอบให้อัตโนมัติ");
 
       const wrongIds = (res.results || []).filter((r) => !r.correct).map((r) => r.id);
@@ -239,11 +334,16 @@ export default function ExamClient({ examId, problems }) {
     );
   }
 
+  // ยังอ่านความคืบหน้าเก่าไม่เสร็จ — รอก่อน กันหน้ากะพริบและกันเขียนทับคำตอบเดิม
+  if (!restored) return <div className="container" />;
+
   return (
     <div className="container">
-      <Link href="/exam" className="back-link">
+      <a href="/exam" className="back-link" onClick={leaveExam}>
         ‹ ออกจากข้อสอบ
-      </Link>
+      </a>
+
+      {resumeNote && <div className="resume-note">{resumeNote}</div>}
 
       <div className="exam-nav">
         <span className="exam-nav-label">
