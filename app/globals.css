@@ -730,6 +730,27 @@ code {
   border-color: #d97706;
 }
 
+.misconception-line {
+  font-size: 14px;
+  font-weight: 600;
+  color: #9a3412;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.similar-problem-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #059669;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.similar-problem-link:hover {
+  text-decoration: underline;
+}
+
 h1 {
   font-size: 22px;
   margin-bottom: 4px;

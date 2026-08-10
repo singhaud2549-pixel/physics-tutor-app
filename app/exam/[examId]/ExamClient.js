@@ -213,6 +213,16 @@ export default function ExamClient({ examId, problems }) {
                 คำตอบของฉัน: <MathText>{r.yourAnswer || "(ไม่ได้ตอบ)"}</MathText> ·
                 {" "}เฉลย: <MathText>{r.correctAnswer}</MathText>
               </p>
+              {r.misconception && (
+                <p className="misconception-line">
+                  ❌ เข้าใจผิดว่า: <MathText>{r.misconception}</MathText>
+                </p>
+              )}
+              {r.similarProblemId && (
+                <Link href={`/problem/${r.similarProblemId}`} className="similar-problem-link">
+                  🔁 ลองข้อแนวเดียวกันดูว่าเข้าใจจริงไหม →
+                </Link>
+              )}
               {r.solution && (
                 <p className="problem-sub" style={{ marginTop: 8 }}>
                   <MathText>{r.solution}</MathText>
