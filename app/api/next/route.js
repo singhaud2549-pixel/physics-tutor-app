@@ -5,7 +5,9 @@ export const dynamic = "force-dynamic";
 // แนะนำโจทย์ข้อต่อไป (adaptive)
 // หลัก: ทบทวนข้อที่เคยพลาด → ฝึกแนวเดิมให้แม่น → พอเก่งแล้วเลื่อนแนวถัดไป
 export async function POST(request) {
-  const { currentId, history = [] } = await request.json();
+  // currentSolved = false → นักเรียนขอดูเฉลยข้อนี้ (ยังทำเองไม่ได้)
+  // ข้อนี้ต้องยังนับว่า "ยังไม่ผ่าน" เพื่อวนกลับมาให้ทบทวนวันหลัง แต่ไม่เด้งซ้ำทันทีตอนนี้
+  const { currentId, history = [], currentSolved = true } = await request.json();
   const all = getAllPublic();
   const byId = {};
   for (const p of all) byId[p.id] = p;
@@ -21,7 +23,7 @@ export async function POST(request) {
     if (h.is_correct) solved.add(h.problem_id);
     else wrong.add(h.problem_id);
   }
-  solved.add(currentId); // เพิ่งทำข้อนี้ถูก
+  if (currentSolved) solved.add(currentId); // เพิ่งทำข้อนี้ถูก
 
   const isSolved = (id) => solved.has(id);
   const wrongUnsolved = (id) => wrong.has(id) && !solved.has(id);
@@ -37,7 +39,7 @@ export async function POST(request) {
 
   const unsolvedInSub = (s) =>
     (subs[s] || [])
-      .filter((p) => !isSolved(p.id))
+      .filter((p) => !isSolved(p.id) && p.id !== currentId)
       .sort((a, b) => a.difficulty - b.difficulty);
 
   const curSub = current.subskill || "อื่น ๆ";
@@ -54,10 +56,13 @@ export async function POST(request) {
     Response.json({ done, nextId, reason });
 
   // 1) ทบทวนข้อที่เคยพลาดและยังไม่ผ่าน (แนวปัจจุบันก่อน แล้วค่อยแนวอื่น)
+  // ข้อที่เพิ่งดูเฉลยไปเมื่อกี้ไม่ต้องเด้งซ้ำทันที (เพิ่งเห็นวิธีทำไปสด ๆ)
   const reinforce = [
     ...(subs[curSub] || []).filter((p) => wrongUnsolved(p.id)),
     ...pool.filter((p) => wrongUnsolved(p.id) && p.subskill !== curSub),
-  ].sort((a, b) => a.difficulty - b.difficulty);
+  ]
+    .filter((p) => p.id !== currentId)
+    .sort((a, b) => a.difficulty - b.difficulty);
   if (reinforce.length)
     return send(reinforce[0].id, "ทบทวนข้อที่เคยพลาดให้แม่นขึ้น");
 

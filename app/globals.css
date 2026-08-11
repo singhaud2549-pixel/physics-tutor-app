@@ -486,6 +486,41 @@ code {
   color: #92400e;
 }
 
+.bubble.solution {
+  background: #fff;
+  border: 1px solid #d6d3d1;
+  border-left: 4px solid #78716c;
+  color: #2c2a25;
+  white-space: pre-wrap;
+}
+
+.solution-answer {
+  font-size: 17px;
+  font-weight: 700;
+  color: #065f46;
+  margin-bottom: 10px;
+}
+
+/* ทางออกสำรอง — จงใจทำให้ดูจืดกว่าปุ่มขอคำใบ้ ไม่ให้เป็นตัวเลือกแรกที่ตาไปเจอ */
+.reveal-btn {
+  margin-top: 10px;
+  width: 100%;
+  color: #78716c;
+  background: #fff;
+  border: 1px solid #e7e5e4;
+  font-size: 14px;
+}
+
+.reveal-btn:hover:not(:disabled) {
+  background: #f5f5f4;
+  color: #57534e;
+}
+
+.reveal-btn:disabled {
+  background: #f5f5f4;
+  color: #d6d3d1;
+}
+
 .auth-gate {
   margin-top: 16px;
   background: #fffbeb;

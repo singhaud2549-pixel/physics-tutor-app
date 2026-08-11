@@ -11,6 +11,7 @@ export default function ProblemClient({ problem }) {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false); // เริ่มมีตัวอักษรไหลออกมาแล้ว
   const [solved, setSolved] = useState(false);
+  const [revealed, setRevealed] = useState(false); // ขอดูเฉลยแล้ว (ทำเองไม่ได้)
   const [nextRec, setNextRec] = useState(null); // โจทย์ที่แนะนำข้อต่อไป
 
   // ต้องล็อกอินก่อนถึงจะทำโจทย์ได้ (กันคนแปลกหน้ายิง /api/hint ฟรี)
@@ -34,9 +35,10 @@ export default function ProblemClient({ problem }) {
   }, []);
 
   const isChoice = problem.kind === "choice";
+  const hintCount = thread.filter((m) => m.role === "hint").length;
 
-  // หลังทำถูก → ขอคำแนะนำข้อต่อไป (ใช้ประวัติของนักเรียน)
-  async function fetchNext() {
+  // หลังทำถูก (หรือขอดูเฉลย) → ขอคำแนะนำข้อต่อไป (ใช้ประวัติของนักเรียน)
+  async function fetchNext(currentSolved = true) {
     let history = [];
     if (isSupabaseReady) {
       const { data: u } = await supabase.auth.getUser();
@@ -52,7 +54,7 @@ export default function ProblemClient({ problem }) {
       const rec = await fetch("/api/next", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentId: problem.id, history }),
+        body: JSON.stringify({ currentId: problem.id, history, currentSolved }),
       }).then((r) => r.json());
       setNextRec(rec);
     } catch {
@@ -176,7 +178,7 @@ export default function ProblemClient({ problem }) {
   async function submit(e) {
     e.preventDefault();
     const value = answer.trim();
-    if (!value || loading || solved || dailyLimitReached) return;
+    if (!value || loading || solved || revealed || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     setAnswer("");
@@ -188,7 +190,7 @@ export default function ProblemClient({ problem }) {
 
   // ปรนัย: เลือกข้อ A-E
   async function choose(letter) {
-    if (loading || solved || dailyLimitReached) return;
+    if (loading || solved || revealed || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [
       ...t,
@@ -201,10 +203,59 @@ export default function ProblemClient({ problem }) {
   }
 
   async function askForHint() {
-    if (loading || solved || dailyLimitReached) return;
+    if (loading || solved || revealed || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
     setThread((t) => [...t, { role: "ask", text: "ขอคำใบ้หน่อย 🙏" }]);
     await callHint({ requestHint: true, priorAttempts, priorHints });
+  }
+
+  // ตันจริง ๆ → เปิดเฉลยให้ ดีกว่าปล่อยให้เดามั่วหรือปิดหนีไปเฉย ๆ
+  async function revealSolution() {
+    if (loading || solved || revealed) return;
+    const ok = window.confirm(
+      "ดูเฉลยแล้วข้อนี้จะไม่นับว่าทำได้เอง และจะวนกลับมาให้ทบทวนอีกครั้งวันหลังนะ — ดูเลยไหม",
+    );
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/solution", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ problemId: problem.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.error === "auth_required") setAccessToken(null);
+        setThread((t) => [
+          ...t,
+          { role: "blocked", text: data.message || "ขออภัย เปิดเฉลยไม่สำเร็จ ลองใหม่อีกครั้งนะ" },
+        ]);
+        return;
+      }
+      const { priorHints } = priorFrom(thread);
+      setThread((t) => [
+        ...t,
+        {
+          role: "solution",
+          answer: data.answer,
+          text: `${data.solution}\n\nไม่เป็นไรนะ ข้อนี้ยากจริง — ลองอ่านวิธีทำแล้วจับหลักให้ได้ เดี๋ยวพี่เอาข้อแนวนี้กลับมาให้ลองใหม่ 💪`,
+        },
+      ]);
+      setRevealed(true);
+      recordAttempt("ขอดูเฉลย", false, priorHints.length);
+      fetchNext(false); // ยังไม่ผ่านข้อนี้ — ให้วนกลับมาทบทวนวันหลัง
+    } catch {
+      setThread((t) => [
+        ...t,
+        { role: "blocked", text: "ขออภัย มีข้อผิดพลาดในการเชื่อมต่อ ลองใหม่อีกครั้งนะ" },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -255,7 +306,7 @@ export default function ProblemClient({ problem }) {
                     type="button"
                     className="choice-btn"
                     onClick={() => choose(c.key)}
-                    disabled={loading || solved || dailyLimitReached}
+                    disabled={loading || solved || revealed || dailyLimitReached}
                   >
                     <span className="choice-key">{c.key}</span>
                     <span className="choice-text">
@@ -272,15 +323,18 @@ export default function ProblemClient({ problem }) {
                   placeholder="พิมพ์คำตอบเป็นตัวเลข"
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
-                  disabled={solved || dailyLimitReached}
+                  disabled={solved || revealed || dailyLimitReached}
                 />
-                <button type="submit" disabled={loading || solved || dailyLimitReached}>
+                <button
+                  type="submit"
+                  disabled={loading || solved || revealed || dailyLimitReached}
+                >
                   {solved ? "ผ่านแล้ว ✓" : "ส่งคำตอบ"}
                 </button>
               </form>
             )}
 
-            {!solved && (
+            {!solved && !revealed && (
               <button
                 type="button"
                 className="hint-btn"
@@ -288,6 +342,18 @@ export default function ProblemClient({ problem }) {
                 disabled={loading || dailyLimitReached}
               >
                 💡 คิดไม่ออก ขอคำใบ้
+              </button>
+            )}
+
+            {/* ใบ้ไปหลายรอบแล้วยังไปต่อไม่ได้ → เปิดทางออกให้ ดีกว่าปล่อยให้เดามั่วหรือปิดหนี */}
+            {!solved && !revealed && hintCount >= 3 && (
+              <button
+                type="button"
+                className="reveal-btn"
+                onClick={revealSolution}
+                disabled={loading}
+              >
+                🔑 ยังไปต่อไม่ได้จริง ๆ ขอดูเฉลย
               </button>
             )}
 
@@ -309,15 +375,22 @@ export default function ProblemClient({ problem }) {
                       ? "ฉัน"
                       : m.role === "blocked"
                         ? "แจ้งเตือน"
-                        : "คำใบ้จากพี่"}
+                        : m.role === "solution"
+                          ? "เฉลย"
+                          : "คำใบ้จากพี่"}
               </div>
+              {m.role === "solution" && m.answer && (
+                <p className="solution-answer">
+                  คำตอบคือ <MathText>{m.answer}</MathText>
+                </p>
+              )}
               <MathText>{m.text}</MathText>
             </div>
           ))}
         </div>
       )}
 
-      {solved && (
+      {(solved || revealed) && (
         <div className="reco-card">
           {!nextRec ? (
             <p className="loading">กำลังเลือกข้อต่อไปให้…</p>
