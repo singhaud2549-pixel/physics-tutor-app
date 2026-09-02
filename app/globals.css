@@ -848,3 +848,18 @@ h1 {
 .transcript-line.role-hint { color: #1565c0; }
 .transcript-line.role-correct { color: #2e7d32; }
 .transcript-line.role-solution { color: #ef6c00; }
+
+/* สถานะของโจทย์ในรายการ — ทำถูกแล้ว / เคยลองแต่ยังไม่ถูก */
+.problem-link.solved {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.problem-link.solved .problem-link-text { color: #166534; }
+.problem-link.solved .problem-link-arrow { color: #16a34a; font-weight: 700; }
+.problem-link.solved:hover { border-color: #22c55e; background: #dcfce7; }
+
+.problem-link.tried {
+  border-color: #fed7aa;
+  background: #fffbeb;
+}
+.problem-link.tried .problem-link-arrow { color: #ea580c; font-weight: 700; }
