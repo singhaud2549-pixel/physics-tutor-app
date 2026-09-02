@@ -863,3 +863,4 @@ h1 {
   background: #fffbeb;
 }
 .problem-link.tried .problem-link-arrow { color: #ea580c; font-weight: 700; }
+.transcript-line.role-question { background: #eff6ff; border-radius: 6px; padding: 6px 8px; color: #1e40af; }

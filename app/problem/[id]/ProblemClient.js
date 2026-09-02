@@ -121,6 +121,17 @@ export default function ProblemClient({ problem }) {
     });
   }
 
+  // ช่องกรอกช่องเดียวรับทั้ง "คำตอบ" และ "คำถาม" — แยกด้วยหน้าตาของสิ่งที่พิมพ์
+  // ตัวเลขล้วน (ต่อท้ายด้วยหน่วยสั้น ๆ ได้ เช่น 20, 9.8, 20 m/s) = คำตอบ
+  // ปรนัยรับ A-E = คำตอบ · นอกนั้นทั้งหมดถือเป็นคำถาม
+  // ทางพลาดปลอดภัย: "ประมาณ 20" จะถูกมองเป็นคำถาม แล้ว AI ก็ยังช่วยตอบอยู่ดี
+  // ส่วนคำถามไม่มีทางถูกมองเป็นคำตอบ เพราะคำถามไม่มีทางเป็นตัวเลขล้วน
+  function looksLikeAnswer(v) {
+    const t = v.trim();
+    if (isChoice) return /^[A-Ea-e]$/.test(t);
+    return /^[-+]?\d+(\.\d+)?([eE][-+]?\d+)?(\s*\S{1,10})?$/.test(t);
+  }
+
   function priorFrom(list) {
     return {
       priorHints: list.filter((m) => m.role === "hint").map((m) => m.text),
@@ -224,8 +235,17 @@ export default function ProblemClient({ problem }) {
     const value = answer.trim();
     if (!value || loading || solved || revealed || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
-    setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     setAnswer("");
+
+    // พิมพ์เป็นคำถาม → ไม่นับเป็นการตอบ (ส่ง recordInfo เป็น null)
+    // ถ้านับ สถิติ "ตอบผิดกี่ครั้ง" ในรายงานผู้สอนจะเพี้ยนทั้งระบบ
+    if (!looksLikeAnswer(value)) {
+      setThread((t) => [...t, { role: "question", text: value }]);
+      await callHint({ studentQuestion: value, priorAttempts, priorHints }, null);
+      return;
+    }
+
+    setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     await callHint(
       { studentAnswer: value, priorAttempts, priorHints },
       { answerValue: value, hintCount: priorHints.length },
@@ -363,8 +383,8 @@ export default function ProblemClient({ problem }) {
               <form className="answer-row" onSubmit={submit}>
                 <input
                   type="text"
-                  inputMode="decimal"
-                  placeholder="พิมพ์คำตอบเป็นตัวเลข"
+                  inputMode="text"
+                  placeholder="พิมพ์คำตอบ หรือถามพี่ก็ได้"
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   disabled={solved || revealed || dailyLimitReached}

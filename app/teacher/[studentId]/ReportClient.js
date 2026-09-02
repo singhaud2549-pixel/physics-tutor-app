@@ -11,6 +11,7 @@ const mmss = (s) =>
 
 const ROLE_LABEL = {
   student: "น้องตอบ",
+  question: "น้องถาม",
   ask: "น้องกดขอคำใบ้",
   hint: "AI ใบ้",
   correct: "ถูกต้อง",
@@ -76,6 +77,7 @@ function Section({ title, hint, data, open, setOpen }) {
       <p className="subtitle">
         {hint} · ทำไป <strong>{data.totals.attempts}</strong> ครั้ง · ผิด{" "}
         <strong>{data.totals.wrong}</strong> · ขอคำใบ้ {data.totals.hints} ครั้ง
+        {data.totals.questions ? ` · น้องพิมพ์ถาม ${data.totals.questions} ครั้ง` : ""}
         {data.totals.medianSeconds
           ? ` · เวลาต่อข้อโดยทั่วไป ${mmss(data.totals.medianSeconds)}`
           : ""}
