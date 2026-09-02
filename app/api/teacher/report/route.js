@@ -33,16 +33,33 @@ export async function POST(request) {
 
   const { data: attempts, error } = await sb
     .from("attempts")
-    .select("problem_id, topic, answer, is_correct, hint_count, created_at, exam_set")
+    .select(
+      "problem_id, topic, answer, is_correct, hint_count, created_at, exam_set, seconds_on_problem, session_key",
+    )
     .eq("user_id", studentId)
     .order("created_at", { ascending: false });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
+  // บทสนทนากับ AI — จำกัดจำนวนไว้กันรายงานบวม (พอสำหรับหลายสิบข้อล่าสุด)
+  const { data: messages } = await sb
+    .from("hint_messages")
+    .select("session_key, seq, role, text, seconds_on_problem, created_at")
+    .eq("user_id", studentId)
+    .order("created_at", { ascending: false })
+    .limit(1500);
+
+  const transcriptsBySession = {};
+  for (const m of messages || []) (transcriptsBySession[m.session_key] ||= []).push(m);
+  for (const k of Object.keys(transcriptsBySession)) {
+    transcriptsBySession[k].sort((a, b) => a.seq - b.seq);
+  }
+
   const report = buildReport({
     attempts: attempts || [],
     problemsById: getAllFullById(),
     since: student.last_reviewed_at,
+    transcriptsBySession,
   });
 
   // ขยับจุดตัด "ตั้งแต่คาบที่แล้ว" เฉพาะตอนผู้สอนกดยืนยันเท่านั้น

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
@@ -18,6 +18,18 @@ export default function ProblemClient({ problem }) {
   const [authReady, setAuthReady] = useState(false);
   const [accessToken, setAccessToken] = useState(null);
   const [dailyLimitReached, setDailyLimitReached] = useState(false); // ครบ 60 ครั้ง/วันแล้ว
+  const [userId, setUserId] = useState(null);
+
+  // เก็บบทสนทนากับ AI + เวลาที่ใช้ต่อข้อ
+  // เปิดโจทย์หนึ่งครั้ง = หนึ่ง sessionKey เพื่อร้อยข้อความให้เป็นเส้นเดียวกัน
+  const sessionKeyRef = useRef(null);
+  const openedAtRef = useRef(Date.now());
+  const savedCountRef = useRef(0); // บันทึกไปแล้วกี่ข้อความ (กันเขียนซ้ำ)
+  if (sessionKeyRef.current === null) {
+    sessionKeyRef.current =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : null;
+  }
+  const secondsOnProblem = () => Math.round((Date.now() - openedAtRef.current) / 1000);
 
   useEffect(() => {
     if (!isSupabaseReady) {
@@ -26,13 +38,39 @@ export default function ProblemClient({ problem }) {
     }
     supabase.auth.getSession().then(({ data }) => {
       setAccessToken(data?.session?.access_token ?? null);
+      setUserId(data?.session?.user?.id ?? null);
       setAuthReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAccessToken(session?.access_token ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     return () => sub?.subscription?.unsubscribe();
   }, []);
+
+  // บันทึกบทสนทนา — ดักที่ thread จุดเดียว จึงเก็บครบทุกกรณีโดยไม่ต้องไล่แก้ทีละที่
+  useEffect(() => {
+    if (!isSupabaseReady || !userId || !sessionKeyRef.current) return;
+    if (thread.length <= savedCountRef.current) return;
+    const base = savedCountRef.current;
+    const pending = thread.slice(base);
+    savedCountRef.current = thread.length;
+    const rows = pending.map((m, i) => ({
+      user_id: userId,
+      problem_id: problem.id,
+      session_key: sessionKeyRef.current,
+      seq: base + i,
+      role: m.role,
+      text: String(m.text ?? ""),
+      seconds_on_problem: secondsOnProblem(),
+    }));
+    supabase
+      .from("hint_messages")
+      .insert(rows)
+      .then(({ error }) => {
+        if (error) console.warn("[transcript] บันทึกบทสนทนาไม่สำเร็จ:", error.message);
+      });
+  }, [thread, userId, problem.id]);
 
   const isChoice = problem.kind === "choice";
   const hintCount = thread.filter((m) => m.role === "hint").length;
@@ -78,6 +116,8 @@ export default function ProblemClient({ problem }) {
       answer: String(answerValue),
       is_correct: isCorrect,
       hint_count: hintCount,
+      seconds_on_problem: secondsOnProblem(),
+      session_key: sessionKeyRef.current,
     });
   }
 

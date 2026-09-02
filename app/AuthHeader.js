@@ -20,14 +20,24 @@ export default function AuthHeader() {
       setReady(true);
       // ลิงก์ "ห้องผู้สอน" โผล่เฉพาะบัญชีที่เป็นผู้สอน (RLS ยอมให้อ่านแถวของตัวเองอยู่แล้ว)
       if (data?.user) {
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("role, teacher_id")
-          .eq("user_id", data.user.id)
-          .maybeSingle();
-        setIsTeacher(prof?.role === "teacher");
-        // นักเรียนที่ยังไม่ได้ผูกกับผู้สอน → ต้องเห็นทางไปใส่รหัสครู ไม่งั้นหาไม่เจอ
-        setNeedsTeacher(prof?.role !== "teacher" && !prof?.teacher_id);
+        // ตั้งต้นว่ายังไม่ผูกครูไว้ก่อน — ถ้าอ่าน profiles ไม่สำเร็จ ลิงก์จะยังอยู่
+        // (ลิงก์เกินมาแค่รก แต่ลิงก์หายไปแปลว่านักเรียนเริ่มใช้ไม่ได้เลย)
+        setNeedsTeacher(true);
+        try {
+          const { data: prof, error } = await supabase
+            .from("profiles")
+            .select("role, teacher_id")
+            .eq("user_id", data.user.id)
+            .maybeSingle();
+          if (error) {
+            console.warn("[AuthHeader] อ่าน profiles ไม่สำเร็จ:", error.message);
+          } else if (prof) {
+            setIsTeacher(prof.role === "teacher");
+            setNeedsTeacher(prof.role !== "teacher" && !prof.teacher_id);
+          }
+        } catch (e) {
+          console.warn("[AuthHeader] อ่าน profiles ผิดพลาด:", e?.message || e);
+        }
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {

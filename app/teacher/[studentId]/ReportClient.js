@@ -6,6 +6,68 @@ import MathText from "../../MathText";
 
 const HEAT = (n) => (n >= 5 ? "🔴" : n >= 3 ? "🟠" : n >= 2 ? "🟡" : "🟢");
 
+const mmss = (s) =>
+  typeof s !== "number" ? null : s < 60 ? `${s} วิ` : `${Math.floor(s / 60)} นาที ${s % 60} วิ`;
+
+const ROLE_LABEL = {
+  student: "น้องตอบ",
+  ask: "น้องกดขอคำใบ้",
+  hint: "AI ใบ้",
+  correct: "ถูกต้อง",
+  solution: "เปิดเฉลย",
+  blocked: "ระบบขัดข้อง",
+};
+
+function Item({ it }) {
+  const [showChat, setShowChat] = useState(false);
+  const time = mmss(it.secondsOnProblem);
+  return (
+    <li>
+      <span className="subtitle">
+        {new Date(it.createdAt).toLocaleDateString("th-TH")} · {it.problemId} · {it.topic}
+        {it.examSet ? ` · ${it.examSet}` : ""}
+        {time ? ` · ใช้เวลา ${time}` : ""}
+        {it.hintCount ? ` · คำใบ้ ${it.hintCount} ครั้ง` : ""}
+      </span>
+      <div>
+        ตอบ <code>{it.answer}</code>
+        {it.misconception ? (
+          <>
+            {" "}
+            → <MathText>{it.misconception}</MathText>
+          </>
+        ) : (
+          <span className="subtitle"> → ยังไม่รู้ว่าคิดยังไงถึงได้เลขนี้</span>
+        )}
+      </div>
+      {it.transcript?.length > 0 && (
+        <>
+          <button type="button" className="link-btn" onClick={() => setShowChat((v) => !v)}>
+            {showChat ? "ซ่อนบทสนทนา" : `ดูบทสนทนากับ AI (${it.transcript.length} ข้อความ)`}
+          </button>
+          {showChat && (
+            <div className="transcript">
+              {it.transcript.map((m) => (
+                <div key={m.seq} className={`transcript-line role-${m.role}`}>
+                  <span className="subtitle">
+                    {ROLE_LABEL[m.role] || m.role}
+                    {typeof m.seconds_on_problem === "number"
+                      ? ` · นาทีที่ ${mmss(m.seconds_on_problem)}`
+                      : ""}
+                  </span>
+                  <div>
+                    <MathText>{m.text}</MathText>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </li>
+  );
+}
+
 function Section({ title, hint, data, open, setOpen }) {
   if (!data.totals.attempts) return <p className="subtitle">— ไม่มีข้อมูลในช่วงนี้ —</p>;
 
@@ -14,6 +76,9 @@ function Section({ title, hint, data, open, setOpen }) {
       <p className="subtitle">
         {hint} · ทำไป <strong>{data.totals.attempts}</strong> ครั้ง · ผิด{" "}
         <strong>{data.totals.wrong}</strong> · ขอคำใบ้ {data.totals.hints} ครั้ง
+        {data.totals.medianSeconds
+          ? ` · เวลาต่อข้อโดยทั่วไป ${mmss(data.totals.medianSeconds)}`
+          : ""}
       </p>
 
       {data.byTag.length > 0 && (
@@ -45,24 +110,7 @@ function Section({ title, hint, data, open, setOpen }) {
               {open === g.key && (
                 <ul className="tag-items">
                   {g.items.map((it, i) => (
-                    <li key={i}>
-                      <span className="subtitle">
-                        {new Date(it.createdAt).toLocaleDateString("th-TH")} · {it.problemId} ·{" "}
-                        {it.topic}
-                        {it.examSet ? ` · ${it.examSet}` : ""}
-                      </span>
-                      <div>
-                        ตอบ <code>{it.answer}</code>
-                        {it.misconception ? (
-                          <>
-                            {" "}
-                            → <MathText>{it.misconception}</MathText>
-                          </>
-                        ) : (
-                          <span className="subtitle"> → ยังไม่รู้ว่าคิดยังไงถึงได้เลขนี้</span>
-                        )}
-                      </div>
-                    </li>
+                    <Item key={i} it={it} />
                   ))}
                 </ul>
               )}

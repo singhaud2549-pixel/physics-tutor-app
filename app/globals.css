@@ -840,3 +840,11 @@ h1 {
   padding: 4px 12px;
   font-weight: 600;
 }
+
+/* บทสนทนากับ AI ในรายงานผู้สอน */
+.transcript { margin: 8px 0 4px; padding-left: 12px; border-left: 3px solid #e0e0e0; }
+.transcript-line { padding: 6px 0; }
+.transcript-line.role-student { background: #f8f9fa; border-radius: 6px; padding: 6px 8px; }
+.transcript-line.role-hint { color: #1565c0; }
+.transcript-line.role-correct { color: #2e7d32; }
+.transcript-line.role-solution { color: #ef6c00; }
