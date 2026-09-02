@@ -1,6 +1,23 @@
 import { getAllPublic } from "../../../lib/problems";
+import { createServerSupabase } from "../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
+
+// เพดานระดับความยากของนักเรียนคนนี้ (ผู้สอนตั้งไว้ในห้องผู้สอน) — null = ไม่จำกัด
+async function maxDifficultyOf(request) {
+  const header = request.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const sb = createServerSupabase(token);
+  if (!sb) return null;
+  const { data: auth } = await sb.auth.getUser(token);
+  if (!auth?.user) return null;
+  const { data } = await sb
+    .from("profiles")
+    .select("max_difficulty")
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  return data?.max_difficulty ?? null;
+}
 
 // แนะนำโจทย์ข้อต่อไป (adaptive)
 // หลัก: ทบทวนข้อที่เคยพลาด → ฝึกแนวเดิมให้แม่น → พอเก่งแล้วเลื่อนแนวถัดไป
@@ -8,7 +25,8 @@ export async function POST(request) {
   // currentSolved = false → นักเรียนขอดูเฉลยข้อนี้ (ยังทำเองไม่ได้)
   // ข้อนี้ต้องยังนับว่า "ยังไม่ผ่าน" เพื่อวนกลับมาให้ทบทวนวันหลัง แต่ไม่เด้งซ้ำทันทีตอนนี้
   const { currentId, history = [], currentSolved = true } = await request.json();
-  const all = getAllPublic();
+  const cap = await maxDifficultyOf(request);
+  const all = cap ? getAllPublic().filter((p) => (p.difficulty || 2) <= cap) : getAllPublic();
   const byId = {};
   for (const p of all) byId[p.id] = p;
   const current = byId[currentId];

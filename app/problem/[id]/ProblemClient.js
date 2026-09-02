@@ -53,7 +53,11 @@ export default function ProblemClient({ problem }) {
     try {
       const rec = await fetch("/api/next", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // ส่ง token ไปด้วยเพื่อให้เซิร์ฟเวอร์กรองตามเพดานระดับความยากที่ผู้สอนตั้งไว้
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ currentId: problem.id, history, currentSolved }),
       }).then((r) => r.json());
       setNextRec(rec);

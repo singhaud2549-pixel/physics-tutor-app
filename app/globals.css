@@ -806,3 +806,37 @@ h1 {
   font-size: 14px;
   margin-bottom: 20px;
 }
+
+/* ── ห้องผู้สอน ─────────────────────────────────────────── */
+.student-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.student-actions { display: flex; align-items: center; gap: 12px; }
+.inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.text-input { padding: 8px 10px; border: 2px solid #ddd; border-radius: 8px; font: inherit; width: 100%; max-width: 220px; }
+.text-input.short { max-width: 130px; }
+.code-block { background: #f5f5f5; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 0.85em; white-space: pre; }
+
+.tag-row { border-bottom: 1px solid #eee; padding: 6px 0; }
+.tag-head { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  width: 100%; background: none; border: 0; padding: 6px 0; font: inherit; cursor: pointer; text-align: left; }
+.tag-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trap-refs { padding-left: 24px; }
+.tag-items { margin: 6px 0 10px 24px; padding: 0; list-style: none; }
+.tag-items li { padding: 6px 0; border-top: 1px dashed #eee; }
+
+.topic-table { width: 100%; border-collapse: collapse; }
+.topic-table td { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.topic-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 480px) {
+  .student-row { flex-direction: column; align-items: flex-start; }
+  .tag-head { align-items: flex-start; }
+}
+
+/* ปุ่ม "ใส่รหัสผู้สอน" — ต้องสะดุดตา เพราะนักเรียนใหม่ต้องกดก่อนถึงจะเริ่มใช้ได้ */
+.auth-header-link.highlight {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-weight: 600;
+}
