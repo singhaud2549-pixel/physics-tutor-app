@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
+import ScratchView from "./ScratchView";
 
 const HEAT = (n) => (n >= 5 ? "🔴" : n >= 3 ? "🟠" : n >= 2 ? "🟡" : "🟢");
 
@@ -21,6 +22,7 @@ const ROLE_LABEL = {
 
 function Item({ it }) {
   const [showChat, setShowChat] = useState(false);
+  const [showWork, setShowWork] = useState(false);
   const time = mmss(it.secondsOnProblem);
   return (
     <li>
@@ -41,6 +43,14 @@ function Item({ it }) {
           <span className="subtitle"> → ยังไม่รู้ว่าคิดยังไงถึงได้เลขนี้</span>
         )}
       </div>
+      {it.scratch && (
+        <>
+          <button type="button" className="link-btn" onClick={() => setShowWork((v) => !v)}>
+            {showWork ? "ซ่อนรอยเขียน" : "✏️ ดูรอยเขียนของน้อง"}
+          </button>
+          {showWork && <ScratchView sheet={it.scratch} image={it.image} />}
+        </>
+      )}
       {it.transcript?.length > 0 && (
         <>
           <button type="button" className="link-btn" onClick={() => setShowChat((v) => !v)}>
@@ -78,6 +88,7 @@ function Section({ title, hint, data, open, setOpen }) {
         {hint} · ทำไป <strong>{data.totals.attempts}</strong> ครั้ง · ผิด{" "}
         <strong>{data.totals.wrong}</strong> · ขอคำใบ้ {data.totals.hints} ครั้ง
         {data.totals.questions ? ` · น้องพิมพ์ถาม ${data.totals.questions} ครั้ง` : ""}
+        {data.totals.scratched ? ` · เขียนทด ${data.totals.scratched} ข้อ` : ""}
         {data.totals.medianSeconds
           ? ` · เวลาต่อข้อโดยทั่วไป ${mmss(data.totals.medianSeconds)}`
           : ""}

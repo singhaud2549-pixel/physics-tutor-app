@@ -864,3 +864,86 @@ h1 {
 }
 .problem-link.tried .problem-link-arrow { color: #ea580c; font-weight: 700; }
 .transcript-line.role-question { background: #eff6ff; border-radius: 6px; padding: 6px 8px; color: #1e40af; }
+
+/* ── พื้นที่เขียน (แบบ GoodNotes) ─────────────────────────────────────── */
+/* แผ่นเขียนวางทับทั้งหน้า เขียนคร่อมโจทย์ รูป และคำใบ้ได้หมด */
+.scratch-host { position: relative; }
+
+.scratch-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  /* พื้นหลังโปร่งใส — เนื้อหาจริงอยู่ข้างใต้ ไม่ได้ถูกบัง */
+  background: transparent;
+}
+
+/* แถบเครื่องมือลอยอยู่ล่างจอเสมอ กดถึงได้ตลอดแม้เลื่อนไปไกล */
+.scratch-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+.scratch-bar.writing { border-color: #1565c0; box-shadow: 0 4px 20px rgba(21, 101, 192, 0.28); }
+
+.scratch-mode {
+  border: none;
+  background: #f1f3f5;
+  color: #1f2933;
+  font: inherit;
+  font-size: 15px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scratch-mode.on { background: #1565c0; color: #fff; }
+
+.scratch-tool {
+  border: 2px solid transparent;
+  background: #f8f9fa;
+  font: inherit;
+  font-size: 17px;
+  /* นิ้วต้องกดโดนง่ายบน iPad — 44px คือขนาดต่ำสุดที่ Apple แนะนำ */
+  min-width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.scratch-tool.on { border-color: #1565c0; background: #e3f2fd; }
+.scratch-tool:disabled { opacity: 0.35; cursor: default; }
+
+.scratch-dot { width: 18px; height: 18px; border-radius: 50%; display: block; }
+
+/* ── รอยเขียนของนักเรียนในหน้าครู ─────────────────────────────────────── */
+.scratch-view {
+  position: relative;
+  margin: 8px 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.scratch-view canvas { display: block; width: 100%; }
+
+/* กำลังอยู่โหมดเขียน — ขอบฟ้าจาง ๆ ให้รู้ว่าหน้าจอรับปากกาอยู่ ไม่ใช่ปุ่มกดไม่ได้ */
+.scratch-canvas.on {
+  box-shadow: inset 0 0 0 2px rgba(21, 101, 192, 0.22);
+  border-radius: 10px;
+}
+
+/* เว้นที่ท้ายหน้าไม่ให้แถบเครื่องมือลอยทับปุ่มสุดท้าย */
+.scratch-host { padding-bottom: 84px; }
