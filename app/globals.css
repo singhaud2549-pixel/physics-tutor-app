@@ -929,9 +929,12 @@ h1 {
 .scratch-dot { width: 18px; height: 18px; border-radius: 50%; display: block; }
 
 /* กำลังอยู่โหมดเขียน — ขอบฟ้าจาง ๆ ให้รู้ว่าหน้าจอรับปากกาอยู่ ไม่ใช่ปุ่มกดไม่ได้ */
-.scratch-canvas.on {
-  box-shadow: inset 0 0 0 2px rgba(21, 101, 192, 0.22);
-  border-radius: 10px;
+.scratch-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px rgba(21, 101, 192, 0.28);
 }
 
 /* เว้นที่ท้ายหน้าไม่ให้แถบเครื่องมือลอยทับปุ่มสุดท้าย */

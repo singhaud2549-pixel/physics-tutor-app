@@ -52,10 +52,13 @@ export default function ProblemClient({ problem }) {
   // บันทึกบทสนทนา — ดักที่ thread จุดเดียว จึงเก็บครบทุกกรณีโดยไม่ต้องไล่แก้ทีละที่
   useEffect(() => {
     if (!isSupabaseReady || !userId || !sessionKeyRef.current) return;
-    if (thread.length <= savedCountRef.current) return;
+    // ข้อความท้ายยังเปลี่ยนทุก chunk ขณะ AI ตอบ — บันทึกเมื่อจบ stream เท่านั้น
+    // ส่วนข้อความก่อนหน้า (คำถาม/คำตอบของนักเรียน) บันทึกได้ทันที
+    const readyCount = streaming ? Math.max(0, thread.length - 1) : thread.length;
+    if (readyCount <= savedCountRef.current) return;
     const base = savedCountRef.current;
-    const pending = thread.slice(base);
-    savedCountRef.current = thread.length;
+    const pending = thread.slice(base, readyCount);
+    savedCountRef.current = readyCount;
     const rows = pending.map((m, i) => ({
       user_id: userId,
       problem_id: problem.id,
@@ -71,7 +74,7 @@ export default function ProblemClient({ problem }) {
       .then(({ error }) => {
         if (error) console.warn("[transcript] บันทึกบทสนทนาไม่สำเร็จ:", error.message);
       });
-  }, [thread, userId, problem.id]);
+  }, [thread, streaming, userId, problem.id]);
 
   // ทั้งหน้า = แผ่นที่เขียนทับได้ (รอยเขียนอยู่ในเครื่องน้องเท่านั้น ไม่ได้ส่งไปเก็บที่ไหน)
   const sheetRef = useRef(null);

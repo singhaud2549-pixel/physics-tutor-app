@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PenDiagnostics from "./PenDiagnostics";
 
 // เขียนทับได้ทั้งหน้า แบบทำข้อสอบใน GoodNotes
 //
-// แผ่นเขียนคลุมทั้งหน้าโจทย์ — ตัวโจทย์ รูป ช่องคำตอบ คำใบ้ เขียนทับได้หมด
-// มีสองโหมดเหมือน GoodNotes: ✏️ เขียน (จอรับปากกาอย่างเดียว) · ✋ ใช้งาน (กดปุ่ม/พิมพ์ได้ตามปกติ)
-//
+// สองโหมด: ✏️ เขียน (จอรับปากกาอย่างเดียว) · ✋ ใช้งาน (กดปุ่ม/พิมพ์/เลื่อนได้ตามปกติ)
 // รอยเขียนอยู่ในเครื่องนักเรียนเท่านั้น ไม่ได้ส่งไปเก็บที่ไหน — ปิดหน้าแล้วหาย
-// (เป็นกระดาษทดจริง ๆ ไม่ใช่ข้อมูลที่ต้องเก็บ)
+//
+// อาการ "เขียนแล้วติดบ้างไม่ติดบ้าง" มาจากสถานะการลากค้าง ไม่ใช่ความเร็ว —
+// ทุกทางที่ทำให้การลากจบต้องคืนสถานะให้ครบ ไม่งั้นเส้นถัดไปจะไม่ถูกรับเลย
+// พฤติกรรมทั้งหมดนี้ถูกล็อกไว้ด้วย lib/scratchPad.test.js
 
 const PENS = [
   { key: "black", color: "#1f2933", label: "ดำ" },
@@ -17,7 +19,7 @@ const PENS = [
 
 const LINE_W = 0.0035; // ความหนาเส้น เทียบกับความกว้างแผ่น
 const ERASE_R = 0.025; // รัศมียางลบ เทียบกับความกว้างแผ่น
-const MIN_STEP2 = 0.003 * 0.003; // ระยะขั้นต่ำระหว่างจุด (ยกกำลังสอง เลี่ยงการถอดราก)
+const MIN_STEP2 = 0.002 * 0.002; // ระยะขั้นต่ำระหว่างจุด (ยกกำลังสอง เลี่ยงการถอดราก)
 
 export default function ScratchPad({ targetRef }) {
   const canvasRef = useRef(null);
@@ -26,39 +28,44 @@ export default function ScratchPad({ targetRef }) {
   const currentRef = useRef(null); // เส้นที่กำลังลากอยู่
   const drawingIdRef = useRef(null); // pointerId ที่กำลังลาก (กันสองนิ้วพร้อมกัน)
   const sizeRef = useRef({ w: 0, h: 0 }); // ขนาดแผ่นจริงบนจอ (CSS px)
-  // ตำแหน่งแผ่นบนจอ — จำไว้ตอนเริ่มลาก ไม่ต้องวัดใหม่ทุกครั้งที่ขยับ
-  // (การวัดทุกครั้งบังคับให้เบราว์เซอร์คำนวณเลย์เอาต์ใหม่ = ต้นเหตุอาการหน่วง)
+  // ตำแหน่งแผ่นบนจอ — วัดตอนเริ่มลากและตอนหน้ายืด ไม่วัดใหม่ทุกครั้งที่ขยับ
+  // (การวัดบังคับให้เบราว์เซอร์คำนวณเลย์เอาต์ใหม่ทั้งหน้า = ต้นเหตุอาการหน่วง)
   const rectRef = useRef(null);
 
   const [tool, setTool] = useState("black"); // black | red | erase
-  const [writing, setWriting] = useState(false); // อยู่ในโหมดเขียนไหม (เริ่มที่โหมดใช้งาน)
-  const [penOnly, setPenOnly] = useState(false); // รับเฉพาะปากกา ไม่รับนิ้ว
-  const [hasInk, setHasInk] = useState(false); // มีรอยอยู่ไหม (ไว้เปิด/ปิดปุ่มย้อนกลับ)
+  const [writing, setWriting] = useState(false); // เริ่มที่โหมดใช้งาน
+  // เริ่มที่ "ปากกาเท่านั้น" — ฝ่ามือที่วางบนจอก่อนปลายปากกาจะแตะ ต้องไม่ยึดการลากไว้
+  const [penOnly, setPenOnly] = useState(true);
+  const [hasInk, setHasInk] = useState(false); // มีรอยอยู่ไหม (ไว้เปิด/ปิดปุ่มย้อนกลับ/ล้าง)
 
-  // เปลี่ยนสถานะเฉพาะตอนข้ามเส้น "มีรอย ↔ ไม่มีรอย" — ไม่ใช่ทุกเส้นที่วาด
-  // (สั่งเรนเดอร์ใหม่ทุกเส้นที่วาด คือต้นเหตุอาการหน่วงอีกข้อ)
+  // เปลี่ยนสถานะเฉพาะตอนข้ามเส้น "มีรอย ↔ ไม่มีรอย" ไม่ใช่ทุกเส้นที่วาด
+  // (สั่ง React เรนเดอร์หน้าโจทย์ใหม่ทุกเส้น คืออีกต้นเหตุของอาการหน่วง)
   const syncInk = () => setHasInk(strokesRef.current.length > 0);
 
-  // วาดใหม่ทั้งแผ่น — ใช้ตอนย้อนกลับ / ลบ / หน้ายืดออก เท่านั้น
-  // ระหว่างลากเส้นจะวาดต่อทีละท่อน ไม่เรียกฟังก์ชันนี้
+  const ctx2d = () => canvasRef.current?.getContext("2d") || null;
+
+  function paintStroke(ctx, s, w) {
+    if (!s.p.length) return;
+    ctx.strokeStyle = s.c;
+    ctx.lineWidth = Math.max(1, s.w * w);
+    ctx.beginPath();
+    ctx.moveTo(s.p[0][0] * w, s.p[0][1] * w);
+    for (let i = 1; i < s.p.length; i++) ctx.lineTo(s.p[i][0] * w, s.p[i][1] * w);
+    if (s.p.length === 1) ctx.lineTo(s.p[0][0] * w + 0.01, s.p[0][1] * w);
+    ctx.stroke();
+  }
+
+  // วาดใหม่ทั้งแผ่น — ใช้ตอนย้อนกลับ / ลบ / หน้ายืด เท่านั้น
+  // ต้องวาดเส้นที่กำลังลากอยู่ด้วย ไม่งั้นคำใบ้ไหลออกมาแล้วเส้นที่มือยังจับอยู่จะหายไป
   const redraw = useCallback(() => {
-    const cv = canvasRef.current;
-    if (!cv) return;
+    const ctx = ctx2d();
     const { w, h } = sizeRef.current;
-    if (!w) return;
-    const ctx = cv.getContext("2d");
-    ctx.clearRect(0, 0, w, h); // พื้นหลังโปร่งใส — เนื้อหาจริงอยู่ใต้แผ่น
+    if (!ctx || !w) return;
+    ctx.clearRect(0, 0, w, h); // พื้นหลังโปร่งใส เนื้อหาจริงอยู่ข้างใต้
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const s of strokesRef.current) {
-      ctx.strokeStyle = s.c;
-      ctx.lineWidth = Math.max(1, s.w * w);
-      ctx.beginPath();
-      ctx.moveTo(s.p[0][0] * w, s.p[0][1] * w);
-      for (let i = 1; i < s.p.length; i++) ctx.lineTo(s.p[i][0] * w, s.p[i][1] * w);
-      if (s.p.length === 1) ctx.lineTo(s.p[0][0] * w + 0.01, s.p[0][1] * w);
-      ctx.stroke();
-    }
+    for (const s of strokesRef.current) paintStroke(ctx, s, w);
+    if (currentRef.current) paintStroke(ctx, currentRef.current, w);
   }, []);
 
   // แผ่นต้องสูงเท่าหน้าเสมอ — คำใบ้ไหลออกมาแล้วหน้ายืด แผ่นต้องยืดตาม
@@ -79,12 +86,14 @@ export default function ScratchPad({ targetRef }) {
       if (sizeRef.current.w === w && sizeRef.current.h === h) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2); // เกิน 2 ไม่คมขึ้นแต่กินแรงเครื่อง
       sizeRef.current = { w, h };
-      rectRef.current = null; // ขนาดเปลี่ยน ตำแหน่งที่จำไว้ใช้ไม่ได้แล้ว
       cv.style.width = `${w}px`;
       cv.style.height = `${h}px`;
       cv.width = Math.round(w * dpr);
       cv.height = Math.round(h * dpr);
-      cv.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // วัดใหม่ทันที ห้ามทิ้งไว้เป็นค่าว่าง — มือที่ยังลากอยู่ต้องหาพิกัดต่อได้
+      rectRef.current = cv.getBoundingClientRect();
       redraw();
     };
 
@@ -101,8 +110,23 @@ export default function ScratchPad({ targetRef }) {
   }, [writing]);
 
   function pointFrom(e) {
-    const rect = rectRef.current;
-    return [(e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.width];
+    const r = rectRef.current;
+    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.width];
+  }
+
+  // ต่อเส้นไปยังจุดใหม่ วาดเฉพาะท่อนที่เพิ่ม ไม่วาดใหม่ทั้งแผ่น
+  function extend(ctx, cur, pt, w) {
+    const last = cur.p[cur.p.length - 1];
+    const dx = pt[0] - last[0];
+    const dy = pt[1] - last[1];
+    if (dx * dx + dy * dy < MIN_STEP2) return;
+    cur.p.push(pt);
+    ctx.strokeStyle = cur.c;
+    ctx.lineWidth = Math.max(1, cur.w * w);
+    ctx.beginPath();
+    ctx.moveTo(last[0] * w, last[1] * w);
+    ctx.lineTo(pt[0] * w, pt[1] * w);
+    ctx.stroke();
   }
 
   function eraseAt(pt) {
@@ -122,21 +146,8 @@ export default function ScratchPad({ targetRef }) {
     }
   }
 
-  // ต่อเส้นไปยังจุดใหม่ วาดเฉพาะท่อนที่เพิ่ม ไม่วาดทั้งแผ่น
-  function extend(ctx, cur, pt, w) {
-    const last = cur.p[cur.p.length - 1];
-    const dx = pt[0] - last[0];
-    const dy = pt[1] - last[1];
-    if (dx * dx + dy * dy < MIN_STEP2) return;
-    cur.p.push(pt);
-    ctx.beginPath();
-    ctx.moveTo(last[0] * w, last[1] * w);
-    ctx.lineTo(pt[0] * w, pt[1] * w);
-    ctx.stroke();
-  }
-
   function onPointerDown(e) {
-    // กันหน้าเว็บตีความว่ากำลังลากเลือกข้อความ และกันเมนูเด้งตอนกดค้าง
+    // กันหน้าเว็บตีความว่าลากเลือกข้อความ และกันเมนูเด้งตอนกดค้าง
     e.preventDefault();
     if (penOnly && e.pointerType !== "pen") return;
     if (drawingIdRef.current !== null) return;
@@ -163,18 +174,15 @@ export default function ScratchPad({ targetRef }) {
       return;
     }
     const cur = currentRef.current;
-    if (!cur) return;
-
-    const ctx = canvasRef.current.getContext("2d");
+    const ctx = ctx2d();
+    if (!cur || !ctx) return;
     const { w } = sizeRef.current;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = cur.c;
-    ctx.lineWidth = Math.max(1, cur.w * w);
 
-    // ปากกาส่งตำแหน่งถี่กว่าที่จอรีเฟรช — เบราว์เซอร์รวบไว้ให้ ต้องดึงมาใช้
-    // ไม่งั้นลากเร็ว ๆ แล้วเส้นจะเป็นเหลี่ยม ๆ เหมือนกระตุก
-    const packed = e.nativeEvent.getCoalescedEvents?.();
+    // ปากกาส่งตำแหน่งถี่กว่าที่จอรีเฟรช เบราว์เซอร์รวบไว้ให้ ต้องดึงมาใช้
+    // ไม่งั้นลากเร็ว ๆ แล้วเส้นจะเป็นเหลี่ยม
+    const packed = e.nativeEvent?.getCoalescedEvents?.();
     if (packed && packed.length > 1) {
       for (const ev of packed) extend(ctx, cur, pointFrom(ev), w);
     } else {
@@ -182,21 +190,25 @@ export default function ScratchPad({ targetRef }) {
     }
   }
 
-  function onPointerUp(e) {
+  // จบการลาก — takePoint = เอาตำแหน่งของ event นี้เป็นปลายเส้นด้วยไหม
+  //
+  // ปล่อยนิ้ว/ปากกา (pointerup) → เอา เพราะเป็นปลายเส้นจริง
+  //   ปัดเร็ว ๆ สั้น ๆ บางทีไม่มี pointermove เลย ถ้าไม่เอาจุดนี้เส้นจะหายทั้งเส้น
+  // ระบบยกเลิกให้ (pointercancel) → ไม่เอา เพราะตำแหน่งที่ส่งมาไม่ใช่ที่มือเขียนจริง
+  //   เอามาจะได้เส้นประหลาดพาดหน้าจอ
+  function finish(e, takePoint) {
     if (drawingIdRef.current !== e.pointerId) return;
+    drawingIdRef.current = null;
     const cur = currentRef.current;
     currentRef.current = null;
-    drawingIdRef.current = null;
-    if (!cur) return;
+    if (!cur) return; // โหมดยางลบ ไม่มีเส้นค้างอยู่
 
-    // แตะแล้วปล่อยโดยไม่ลาก = จุดเดียว ต้องเห็นเป็นจุด ไม่ใช่หายไป
-    if (cur.p.length === 1) {
-      const ctx = canvasRef.current.getContext("2d");
-      const { w } = sizeRef.current;
-      ctx.beginPath();
-      ctx.moveTo(cur.p[0][0] * w, cur.p[0][1] * w);
-      ctx.lineTo(cur.p[0][0] * w + 0.01, cur.p[0][1] * w);
-      ctx.stroke();
+    const ctx = ctx2d();
+    const { w } = sizeRef.current;
+    if (ctx) {
+      if (takePoint) extend(ctx, cur, pointFrom(e), w);
+      // แตะแล้วปล่อยที่เดิม = จุดเดียว ต้องเห็นเป็นจุด ไม่ใช่หายไป
+      if (cur.p.length === 1) paintStroke(ctx, cur, w);
     }
     strokesRef.current.push(cur);
     syncInk();
@@ -219,7 +231,7 @@ export default function ScratchPad({ targetRef }) {
     <>
       <canvas
         ref={canvasRef}
-        className={`scratch-canvas${writing ? " on" : ""}`}
+        className="scratch-canvas"
         style={{
           // โหมดใช้งาน = แผ่นใส ไม่รับสัมผัส กดปุ่มและพิมพ์ทะลุลงไปได้ตามปกติ
           pointerEvents: writing ? "auto" : "none",
@@ -227,9 +239,18 @@ export default function ScratchPad({ targetRef }) {
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerUp={(e) => finish(e, true)}
+        onPointerCancel={(e) => finish(e, false)}
+        // iPad ยึดการควบคุมปากกาคืนไปเงียบ ๆ ได้โดยไม่ส่ง pointerup/pointercancel
+        // ไม่ดักตรงนี้ = สถานะค้างว่า "ยังลากอยู่" แล้วเส้นถัดไปจะไม่ถูกรับอีกเลย
+        onLostPointerCapture={(e) => finish(e, false)}
       />
+
+      {/* กรอบบอกว่าอยู่โหมดเขียน แยกชิ้นออกจากแผ่น — ถ้าวางเงาไว้บนแผ่นเอง
+          เครื่องต้องวาดเงาทับใหม่ทุกเฟรมที่ลากปากกา */}
+      {writing && <div className="scratch-frame" />}
+
+      <PenDiagnostics targetRef={targetRef} />
 
       <div className={`scratch-bar${writing ? " writing" : ""}`}>
         <button
