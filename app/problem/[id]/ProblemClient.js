@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
@@ -73,62 +73,8 @@ export default function ProblemClient({ problem }) {
       });
   }, [thread, userId, problem.id]);
 
-  // พื้นที่ทด (ลายมือ) — เก็บเป็นเส้น อัปเดตทับแผ่นเดิมของ session นี้
-  const sheetRef = useRef(null); // ทั้งหน้า = แผ่นที่เขียนทับได้
-  const scratchRef = useRef(null); // { strokes, aspect, layout, rev } ล่าสุด
-  const scratchRevRef = useRef(0); // เลขรุ่นของลายมือ เพิ่มขึ้นทุกครั้งที่เปลี่ยน
-  const scratchSavedRef = useRef(0); // รุ่นที่บันทึกไปแล้ว (กันบันทึกซ้ำโดยเปล่าประโยชน์)
-
-  const saveScratch = useCallback(async () => {
-    if (!isSupabaseReady || !userId || !sessionKeyRef.current) return;
-    const cur = scratchRef.current;
-    if (!cur || !cur.strokes.length) return;
-    if (cur.rev === scratchSavedRef.current) return;
-    scratchSavedRef.current = cur.rev;
-    const { error } = await supabase.from("scratch_sheets").upsert(
-      {
-        user_id: userId,
-        problem_id: problem.id,
-        session_key: sessionKeyRef.current,
-        strokes: cur.strokes,
-        aspect: cur.aspect,
-        layout: cur.layout,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,session_key" },
-    );
-    if (error) {
-      scratchSavedRef.current = 0; // บันทึกไม่ผ่าน ต้องให้ลองใหม่ได้
-      console.warn("[scratch] บันทึกพื้นที่ทดไม่สำเร็จ:", error.message);
-    }
-  }, [userId, problem.id]);
-
-  // ScratchPad เรียกทุกครั้งที่เส้นเปลี่ยน — เก็บใส่ ref แล้วนับ tick ให้ effect ด้านล่างหน่วงบันทึก
-  const [scratchTick, setScratchTick] = useState(0);
-  const onScratchChange = useCallback((payload) => {
-    scratchRevRef.current += 1;
-    scratchRef.current = { ...payload, rev: scratchRevRef.current };
-    setScratchTick(scratchRevRef.current);
-  }, []);
-
-  // หน่วงไว้สองวินาทีหลังหยุดเขียน แล้วค่อยบันทึก (ไม่ยิงฐานข้อมูลทุกเส้น)
-  useEffect(() => {
-    if (!scratchTick) return;
-    const t = setTimeout(saveScratch, 2000);
-    return () => clearTimeout(t);
-  }, [scratchTick, saveScratch]);
-
-  // ปิดแท็บ/สลับแอปกลางคัน ต้องไม่ทำลายมือหาย
-  useEffect(() => {
-    const flush = () => saveScratch();
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", flush);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", flush);
-      flush();
-    };
-  }, [saveScratch]);
+  // ทั้งหน้า = แผ่นที่เขียนทับได้ (รอยเขียนอยู่ในเครื่องน้องเท่านั้น ไม่ได้ส่งไปเก็บที่ไหน)
+  const sheetRef = useRef(null);
 
   const isChoice = problem.kind === "choice";
   const hintCount = thread.filter((m) => m.role === "hint").length;
@@ -167,7 +113,6 @@ export default function ProblemClient({ problem }) {
     if (!isSupabaseReady) return;
     const { data } = await supabase.auth.getUser();
     if (!data?.user) return; // ยังไม่ล็อกอิน = ไม่บันทึก
-    saveScratch(); // ส่งคำตอบ = จุดที่ควรเก็บลายมือทันที ไม่ต้องรอหน่วงเวลา
     await supabase.from("attempts").insert({
       user_id: data.user.id,
       problem_id: problem.id,
@@ -543,7 +488,7 @@ export default function ProblemClient({ problem }) {
       )}
 
       {/* แผ่นเขียนคลุมทั้งหน้า — ต้องอยู่ท้ายสุดเพื่อให้ซ้อนทับทุกอย่าง */}
-      {accessToken && <ScratchPad targetRef={sheetRef} onChange={onScratchChange} />}
+      {accessToken && <ScratchPad targetRef={sheetRef} />}
     </div>
   );
 }

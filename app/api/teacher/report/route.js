@@ -55,23 +55,11 @@ export async function POST(request) {
     transcriptsBySession[k].sort((a, b) => a.seq - b.seq);
   }
 
-  // ลายมือที่น้องเขียนทด — เก็บเป็นเส้น ไม่ใช่ภาพ จึงดึงมาทั้งก้อนได้โดยไม่หนัก
-  const { data: sheets } = await sb
-    .from("scratch_sheets")
-    .select("session_key, strokes, aspect, layout")
-    .eq("user_id", studentId)
-    .order("updated_at", { ascending: false })
-    .limit(300);
-
-  const scratchBySession = {};
-  for (const sh of sheets || []) scratchBySession[sh.session_key] = sh;
-
   const report = buildReport({
     attempts: attempts || [],
     problemsById: getAllFullById(),
     since: student.last_reviewed_at,
     transcriptsBySession,
-    scratchBySession,
   });
 
   // ขยับจุดตัด "ตั้งแต่คาบที่แล้ว" เฉพาะตอนผู้สอนกดยืนยันเท่านั้น

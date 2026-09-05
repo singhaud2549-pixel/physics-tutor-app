@@ -928,17 +928,6 @@ h1 {
 
 .scratch-dot { width: 18px; height: 18px; border-radius: 50%; display: block; }
 
-/* ── รอยเขียนของนักเรียนในหน้าครู ─────────────────────────────────────── */
-.scratch-view {
-  position: relative;
-  margin: 8px 0;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: #fff;
-  overflow: hidden;
-}
-.scratch-view canvas { display: block; width: 100%; }
-
 /* กำลังอยู่โหมดเขียน — ขอบฟ้าจาง ๆ ให้รู้ว่าหน้าจอรับปากกาอยู่ ไม่ใช่ปุ่มกดไม่ได้ */
 .scratch-canvas.on {
   box-shadow: inset 0 0 0 2px rgba(21, 101, 192, 0.22);
@@ -947,3 +936,15 @@ h1 {
 
 /* เว้นที่ท้ายหน้าไม่ให้แถบเครื่องมือลอยทับปุ่มสุดท้าย */
 .scratch-host { padding-bottom: 84px; }
+
+/* ระหว่างเขียน ห้ามหน้าเว็บไฮไลต์ตัวอักษรหรือเด้งเมนูตอนกดค้าง
+   (ไม่ใส่ตรงนี้ ลากปากกาทีเดียวข้อความจะถูกเลือกทั้งย่อหน้า) */
+body.scratch-writing,
+body.scratch-writing * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ปุ่มสลับ "นิ้วก็เขียนได้ / ปากกาเท่านั้น" มีตัวหนังสือ เลยกว้างกว่าปุ่มไอคอน */
+.scratch-tool.wide { padding: 0 14px; font-size: 14px; }
