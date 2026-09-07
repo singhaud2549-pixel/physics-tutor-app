@@ -20,6 +20,30 @@ const PENS = [
 const LINE_W = 0.0035; // ความหนาเส้น เทียบกับความกว้างแผ่น
 const ERASE_R = 0.025; // รัศมียางลบ เทียบกับความกว้างแผ่น
 const MIN_STEP2 = 0.002 * 0.002; // ระยะขั้นต่ำระหว่างจุด (ยกกำลังสอง เลี่ยงการถอดราก)
+const SMOOTH_STEPS = 6; // ซอยเส้นโค้งกี่ท่อน — 6 พอให้ตามองไม่เห็นเหลี่ยม โดยไม่กินแรงเครื่อง
+
+// จุดกึ่งกลางระหว่างสองจุด
+const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+
+// ลากเส้นโค้งผ่านจุด b โดยเริ่มที่กึ่งกลาง a-b และจบที่กึ่งกลาง b-c
+//
+// ปากกาบน iPad ส่งตำแหน่งแค่ 60 ครั้ง/วินาที (วัดจากเครื่องจริง = ทุก 16.7 ms)
+// เขียนเร็ว ๆ จุดจะห่างกันหลายสิบพิกเซล ถ้าลากเส้นตรงเชื่อมจะได้เส้นเป็นเหลี่ยม ๆ
+// ตาคนอ่านว่า "สะดุด/ค้าง" ทั้งที่โปรแกรมวาดทันทุกจุดแล้ว
+// เขียนเป็น const ไม่ใช่ function เพราะตัวช่วยเทสต์หา component จากคำว่า
+// "function" ตัวแรกในไฟล์ — ประกาศ function ไว้ก่อน ScratchPad แล้วมันจะหยิบผิดตัว
+const curveThrough = (ctx, a, b, c, w) => {
+  const m0 = mid(a, b);
+  const m1 = mid(b, c);
+  for (let i = 1; i <= SMOOTH_STEPS; i++) {
+    const t = i / SMOOTH_STEPS;
+    const u = 1 - t;
+    ctx.lineTo(
+      (u * u * m0[0] + 2 * u * t * b[0] + t * t * m1[0]) * w,
+      (u * u * m0[1] + 2 * u * t * b[1] + t * t * m1[1]) * w,
+    );
+  }
+};
 
 export default function ScratchPad({ targetRef }) {
   const canvasRef = useRef(null);
@@ -49,9 +73,15 @@ export default function ScratchPad({ targetRef }) {
     ctx.strokeStyle = s.c;
     ctx.lineWidth = Math.max(1, s.w * w);
     ctx.beginPath();
-    ctx.moveTo(s.p[0][0] * w, s.p[0][1] * w);
-    for (let i = 1; i < s.p.length; i++) ctx.lineTo(s.p[i][0] * w, s.p[i][1] * w);
-    if (s.p.length === 1) ctx.lineTo(s.p[0][0] * w + 0.01, s.p[0][1] * w);
+    const p = s.p;
+    ctx.moveTo(p[0][0] * w, p[0][1] * w);
+    // จุดเดียว (แตะแล้วปล่อย) ต้องเห็นเป็นจุด ไม่ใช่หายไป
+    if (p.length === 1) ctx.lineTo(p[0][0] * w + 0.01, p[0][1] * w);
+    else if (p.length === 2) ctx.lineTo(p[1][0] * w, p[1][1] * w);
+    else {
+      for (let i = 1; i < p.length - 1; i++) curveThrough(ctx, p[i - 1], p[i], p[i + 1], w);
+      ctx.lineTo(p[p.length - 1][0] * w, p[p.length - 1][1] * w);
+    }
     ctx.stroke();
   }
 
@@ -124,8 +154,18 @@ export default function ScratchPad({ targetRef }) {
     ctx.strokeStyle = cur.c;
     ctx.lineWidth = Math.max(1, cur.w * w);
     ctx.beginPath();
-    ctx.moveTo(last[0] * w, last[1] * w);
-    ctx.lineTo(pt[0] * w, pt[1] * w);
+    const n = cur.p.length;
+    if (n < 3) {
+      ctx.moveTo(last[0] * w, last[1] * w);
+      ctx.lineTo(pt[0] * w, pt[1] * w);
+    } else {
+      // ท่อนโค้งต่อกันสนิท เพราะแต่ละท่อนจบที่จุดกึ่งกลางซึ่งเป็นจุดเริ่มของท่อนถัดไปพอดี
+      const a = cur.p[n - 3];
+      const b = cur.p[n - 2];
+      const m0 = mid(a, b);
+      ctx.moveTo(m0[0] * w, m0[1] * w);
+      curveThrough(ctx, a, b, pt, w);
+    }
     ctx.stroke();
   }
 
@@ -166,6 +206,8 @@ export default function ScratchPad({ targetRef }) {
   }
 
   function onPointerMove(e) {
+    // ปากกาที่ลอยเหนือจอ (ยังไม่แตะ) ส่งตำแหน่งมา 60 ครั้ง/วินาทีตลอดเวลา
+    // ต้องทิ้งตั้งแต่บรรทัดแรก อย่าให้ไปแตะงานที่หนักกว่านี้
     if (drawingIdRef.current !== e.pointerId) return;
     e.preventDefault();
 
