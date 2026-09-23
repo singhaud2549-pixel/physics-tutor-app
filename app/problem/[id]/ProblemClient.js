@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
+import ScratchPad from "./ScratchPad";
 
 export default function ProblemClient({ problem }) {
   const [answer, setAnswer] = useState("");
@@ -18,6 +19,18 @@ export default function ProblemClient({ problem }) {
   const [authReady, setAuthReady] = useState(false);
   const [accessToken, setAccessToken] = useState(null);
   const [dailyLimitReached, setDailyLimitReached] = useState(false); // ครบ 60 ครั้ง/วันแล้ว
+  const [userId, setUserId] = useState(null);
+
+  // เก็บบทสนทนากับ AI + เวลาที่ใช้ต่อข้อ
+  // เปิดโจทย์หนึ่งครั้ง = หนึ่ง sessionKey เพื่อร้อยข้อความให้เป็นเส้นเดียวกัน
+  const sessionKeyRef = useRef(null);
+  const openedAtRef = useRef(Date.now());
+  const savedCountRef = useRef(0); // บันทึกไปแล้วกี่ข้อความ (กันเขียนซ้ำ)
+  if (sessionKeyRef.current === null) {
+    sessionKeyRef.current =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : null;
+  }
+  const secondsOnProblem = () => Math.round((Date.now() - openedAtRef.current) / 1000);
 
   useEffect(() => {
     if (!isSupabaseReady) {
@@ -26,13 +39,66 @@ export default function ProblemClient({ problem }) {
     }
     supabase.auth.getSession().then(({ data }) => {
       setAccessToken(data?.session?.access_token ?? null);
+      setUserId(data?.session?.user?.id ?? null);
       setAuthReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAccessToken(session?.access_token ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     return () => sub?.subscription?.unsubscribe();
   }, []);
+
+  // บันทึกบทสนทนา — ดักที่ thread จุดเดียว จึงเก็บครบทุกกรณีโดยไม่ต้องไล่แก้ทีละที่
+  useEffect(() => {
+    if (!isSupabaseReady || !userId || !sessionKeyRef.current) return;
+    // ข้อความท้ายยังเปลี่ยนทุก chunk ขณะ AI ตอบ — บันทึกเมื่อจบ stream เท่านั้น
+    // ส่วนข้อความก่อนหน้า (คำถาม/คำตอบของนักเรียน) บันทึกได้ทันที
+    const readyCount = streaming ? Math.max(0, thread.length - 1) : thread.length;
+    if (readyCount <= savedCountRef.current) return;
+    const base = savedCountRef.current;
+    const pending = thread.slice(base, readyCount);
+    savedCountRef.current = readyCount;
+    const rows = pending.map((m, i) => ({
+      user_id: userId,
+      problem_id: problem.id,
+      session_key: sessionKeyRef.current,
+      seq: base + i,
+      role: m.role,
+      text: String(m.text ?? ""),
+      seconds_on_problem: secondsOnProblem(),
+    }));
+    supabase
+      .from("hint_messages")
+      .insert(rows)
+      .then(({ error }) => {
+        if (error) console.warn("[transcript] บันทึกบทสนทนาไม่สำเร็จ:", error.message);
+      });
+  }, [thread, streaming, userId, problem.id]);
+
+  // heartbeat บอกครูว่ากำลังทำข้อไหนอยู่ (ตาราง presence) — ทุก 30 วิ + ครั้งแรกที่เปิด
+  // ถ้า server ยังไม่ migrate ตารางนี้จะ 500 เงียบ ๆ ไม่มีผลกับการทำโจทย์
+  useEffect(() => {
+    if (!accessToken || !problem.id) return;
+    let alive = true;
+    const beat = () => {
+      if (!alive) return;
+      fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ problemId: problem.id }),
+      }).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [accessToken, problem.id]);
+
+  // ทั้งหน้า = แผ่นที่เขียนทับได้ (รอยเขียนอยู่ในเครื่องน้องเท่านั้น ไม่ได้ส่งไปเก็บที่ไหน)
+  const sheetRef = useRef(null);
 
   const isChoice = problem.kind === "choice";
   const hintCount = thread.filter((m) => m.role === "hint").length;
@@ -53,7 +119,11 @@ export default function ProblemClient({ problem }) {
     try {
       const rec = await fetch("/api/next", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // ส่ง token ไปด้วยเพื่อให้เซิร์ฟเวอร์กรองตามเพดานระดับความยากที่ผู้สอนตั้งไว้
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ currentId: problem.id, history, currentSolved }),
       }).then((r) => r.json());
       setNextRec(rec);
@@ -74,7 +144,20 @@ export default function ProblemClient({ problem }) {
       answer: String(answerValue),
       is_correct: isCorrect,
       hint_count: hintCount,
+      seconds_on_problem: secondsOnProblem(),
+      session_key: sessionKeyRef.current,
     });
+  }
+
+  // ช่องกรอกช่องเดียวรับทั้ง "คำตอบ" และ "คำถาม" — แยกด้วยหน้าตาของสิ่งที่พิมพ์
+  // ตัวเลขล้วน (ต่อท้ายด้วยหน่วยสั้น ๆ ได้ เช่น 20, 9.8, 20 m/s) = คำตอบ
+  // ปรนัยรับ A-E = คำตอบ · นอกนั้นทั้งหมดถือเป็นคำถาม
+  // ทางพลาดปลอดภัย: "ประมาณ 20" จะถูกมองเป็นคำถาม แล้ว AI ก็ยังช่วยตอบอยู่ดี
+  // ส่วนคำถามไม่มีทางถูกมองเป็นคำตอบ เพราะคำถามไม่มีทางเป็นตัวเลขล้วน
+  function looksLikeAnswer(v) {
+    const t = v.trim();
+    if (isChoice) return /^[A-Ea-e]$/.test(t);
+    return /^[-+]?\d+(\.\d+)?([eE][-+]?\d+)?(\s*\S{1,10})?$/.test(t);
   }
 
   function priorFrom(list) {
@@ -180,8 +263,17 @@ export default function ProblemClient({ problem }) {
     const value = answer.trim();
     if (!value || loading || solved || revealed || dailyLimitReached) return;
     const { priorHints, priorAttempts } = priorFrom(thread);
-    setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     setAnswer("");
+
+    // พิมพ์เป็นคำถาม → ไม่นับเป็นการตอบ (ส่ง recordInfo เป็น null)
+    // ถ้านับ สถิติ "ตอบผิดกี่ครั้ง" ในรายงานผู้สอนจะเพี้ยนทั้งระบบ
+    if (!looksLikeAnswer(value)) {
+      setThread((t) => [...t, { role: "question", text: value }]);
+      await callHint({ studentQuestion: value, priorAttempts, priorHints }, null);
+      return;
+    }
+
+    setThread((t) => [...t, { role: "student", text: value, answer: value }]);
     await callHint(
       { studentAnswer: value, priorAttempts, priorHints },
       { answerValue: value, hintCount: priorHints.length },
@@ -259,7 +351,7 @@ export default function ProblemClient({ problem }) {
   }
 
   return (
-    <div className="container">
+    <div className="container scratch-host" ref={sheetRef}>
       <Link href="/" className="back-link">
         ‹ กลับไปเลือกโจทย์
       </Link>
@@ -319,8 +411,8 @@ export default function ProblemClient({ problem }) {
               <form className="answer-row" onSubmit={submit}>
                 <input
                   type="text"
-                  inputMode="decimal"
-                  placeholder="พิมพ์คำตอบเป็นตัวเลข"
+                  inputMode="text"
+                  placeholder="พิมพ์คำตอบ หรือถามพี่ก็ได้"
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   disabled={solved || revealed || dailyLimitReached}
@@ -418,6 +510,9 @@ export default function ProblemClient({ problem }) {
           )}
         </div>
       )}
+
+      {/* แผ่นเขียนคลุมทั้งหน้า — ต้องอยู่ท้ายสุดเพื่อให้ซ้อนทับทุกอย่าง */}
+      {accessToken && <ScratchPad targetRef={sheetRef} />}
     </div>
   );
 }

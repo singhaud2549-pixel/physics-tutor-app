@@ -53,6 +53,16 @@ export default function Home() {
         </Link>
       )}
 
+      <Link href="/traps" className="card exam-cta">
+        <span className="exam-cta-title">🪤 สมุดกับดัก</span>
+        <span className="exam-cta-sub">กับดักที่เคยเจอ ตัวไหนปราบแล้ว ตัวไหนยังตามหลอกอยู่</span>
+      </Link>
+
+      <Link href="/missions" className="card exam-cta">
+        <span className="exam-cta-title">🎯 ภารกิจวันนี้</span>
+        <span className="exam-cta-sub">วันนี้ทำอะไรก่อนดี — ระบบจัดให้ตามงบเวลาที่มี</span>
+      </Link>
+
       {sections.map((sec) => (
         <div key={sec.name} className="card">
           <h2 className="cat-name">{sec.name}</h2>

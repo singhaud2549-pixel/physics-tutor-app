@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
+import { buildDebrief } from "../../../lib/debrief";
 
 // เวลาสอบ: ประมาณ 3 นาที/ข้อ (ขั้นต่ำ 30 นาที) ปรับตามจำนวนข้อในชุดโดยอัตโนมัติ
 // ไม่ต้องเพิ่ม field ใหม่ในไฟล์โจทย์ — ชุด 30 ข้อจะได้ 90 นาที ตรงกับเวลาสอบ A-Level จริง
@@ -57,6 +58,9 @@ export default function ExamClient({ examId, problems }) {
   const [startedAt, setStartedAt] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const [resumeNote, setResumeNote] = useState(null);
+  // เวลารายข้อ (วินาทีที่เปิดข้อไหนอยู่) — snapshot ตอนส่งไว้ผ่าผลสอบ + บันทึกลง attempts
+  const [times, setTimes] = useState({});
+  const [reviewFilter, setReviewFilter] = useState("all"); // all | solid | rushed | shaky | unanswered
 
   const storageKey = STORAGE_PREFIX + examId;
   const limitMs = examDurationSeconds(problems.length) * 1000;
@@ -116,6 +120,28 @@ export default function ExamClient({ examId, problems }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secondsLeft, restored, result, submitting, startedAt]);
 
+  // จับเวลารายข้อ — สะสมเวลาที่เปิดข้อไหนอยู่ (wall clock) ไว้ผ่าผลสอบว่ารีบหรือคิดนานแล้วพลาด
+  // รีเฟรชกลางคันเวลาจะหาย (ไม่ persist ลง localStorage) → ข้อที่ไม่มีเวลาตกเป็น "ยังไม่แม่น" โดยอัตโนมัติ
+  const timeByIdRef = useRef({});
+  const viewStartRef = useRef(null);
+  function flushViewTime() {
+    const v = viewStartRef.current;
+    if (!v) return;
+    const elapsed = Math.round((Date.now() - v.t) / 1000);
+    if (elapsed > 0) {
+      timeByIdRef.current[v.id] = (timeByIdRef.current[v.id] || 0) + elapsed;
+    }
+    viewStartRef.current = null;
+  }
+  useEffect(() => {
+    if (!restored || result || !startedAt) return;
+    const id = problems[index]?.id;
+    if (!id) return;
+    viewStartRef.current = { id, t: Date.now() };
+    return () => flushViewTime();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, restored, startedAt, result]);
+
   // เตือนก่อนปิด/รีเฟรช — คำตอบไม่หายแล้วก็จริง แต่ "เวลายังเดินอยู่" ต้องให้รู้ตัวก่อน
   useEffect(() => {
     if (result || answeredCount === 0) return;
@@ -167,7 +193,8 @@ export default function ExamClient({ examId, problems }) {
 
   // บันทึกคะแนนรวม (exam_sessions) + คำตอบแต่ละข้อ (attempts) — เฉพาะคนที่ล็อกอิน
   // แต่ละข้อที่บันทึกลง attempts ก็จะไปโผล่ในหน้า "จุดผิดของฉัน" ได้ด้วยเหมือนโจทย์แยกบท
-  async function recordExamHistory(res, durationSeconds, analysisText) {
+  // perQuestionTimes ทำให้รายงานครู/สถิติรายข้อได้เวลาต่อข้อของโหมดข้อสอบด้วย (แต่เดิมไม่มีเลย)
+  async function recordExamHistory(res, durationSeconds, analysisText, perQuestionTimes = {}) {
     if (!isSupabaseReady) return;
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
@@ -194,6 +221,7 @@ export default function ExamClient({ examId, problems }) {
         answer: r.yourAnswer || "",
         is_correct: r.correct,
         hint_count: 0,
+        seconds_on_problem: perQuestionTimes[r.id] ?? null,
         exam_set: examId,
         exam_session_id: sessionId,
       }));
@@ -219,6 +247,9 @@ export default function ExamClient({ examId, problems }) {
     setSubmitting(true);
     try {
       const durationSeconds = Math.round((Date.now() - (startedAt || Date.now())) / 1000);
+      flushViewTime(); // เก็บเวลาข้อสุดท้ายก่อนคำนวณ
+      const perQuestionTimes = { ...timeByIdRef.current };
+      setTimes(perQuestionTimes);
       const res = await fetch("/api/exam-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -234,7 +265,7 @@ export default function ExamClient({ examId, problems }) {
       setAnalysis(analysisText);
       setAnalyzing(false);
 
-      recordExamHistory(res, durationSeconds, analysisText);
+      recordExamHistory(res, durationSeconds, analysisText, perQuestionTimes);
     } catch {
       alert("ตรวจข้อสอบไม่สำเร็จ ลองใหม่อีกครั้งนะ");
     } finally {
@@ -245,6 +276,27 @@ export default function ExamClient({ examId, problems }) {
   if (result) {
     const resultById = Object.fromEntries(result.results.map((r) => [r.id, r]));
     const topicById = Object.fromEntries(problems.map((p) => [p.id, p.topic]));
+    // ผ่าคะแนนที่หายไปตามสาเหตุ — ใช้เวลารายข้อที่จับไว้ตอนทำ (ข้อไหนไม่มีเวลาตกเป็น "ยังไม่แม่น")
+    const debrief = buildDebrief(
+      result.results.map((r) => ({
+        id: r.id,
+        correct: r.correct,
+        answered: Boolean(r.yourAnswer),
+        seconds: times[r.id] ?? null,
+      })),
+    );
+    const BUCKET_LABEL = {
+      rushed: "⚡ รีบไปหน่อย",
+      shaky: "🧱 ยังไม่แม่น",
+      unanswered: "⏰ ไม่ได้ตอบ",
+    };
+    const FILTERS = [
+      ["all", `ทั้งหมด ${debrief.summary.total}`],
+      ["solid", `ถูก ${debrief.summary.solid}`],
+      ["rushed", `รีบ ${debrief.summary.rushed}`],
+      ["shaky", `ยังไม่แม่น ${debrief.summary.shaky}`],
+      ["unanswered", `ไม่ได้ตอบ ${debrief.summary.unanswered}`],
+    ];
     const weakTopics = [
       ...new Set(
         result.results.filter((r) => !r.correct).map((r) => topicById[r.id]).filter(Boolean),
@@ -291,12 +343,53 @@ export default function ExamClient({ examId, problems }) {
           </div>
         )}
 
+        <div className="card">
+          <span className="tag">🔍 คะแนนรั่วไปทางไหน</span>
+          <p className="problem-sub">
+            ⚡ รีบ {debrief.summary.rushed} · 🧱 ยังไม่แม่น {debrief.summary.shaky} · ⏰ ไม่ได้ตอบ{" "}
+            {debrief.summary.unanswered}
+            {debrief.faded ? " · 📉 ครึ่งหลังแม่นตก (แรงตกท้าย)" : ""}
+          </p>
+          {debrief.summary.rushed > 0 && (
+            <p className="problem-sub">⚡ รีบ — ตอบเร็วแล้วพลาด อ่านโจทย์อีก 1 รอบก่อนส่ง</p>
+          )}
+          {debrief.summary.shaky > 0 && (
+            <p className="problem-sub">🧱 ยังไม่แม่น — ใช้เวลาคิดแล้วยังพลาด กลับไปซ่อมบทนี้</p>
+          )}
+          {debrief.summary.unanswered > 0 && (
+            <p className="problem-sub">⏰ ไม่ทัน — คราวหน้าข้ามข้อยากก่อนแล้วค่อยย้อนกลับ</p>
+          )}
+          {debrief.faded && (
+            <p className="problem-sub">📉 แรงตกครึ่งหลัง — ซ้อมเต็มชุดบ่อยๆ สร้างความอึด</p>
+          )}
+        </div>
+
+        <div className="card">
+          <span className="tag">🔎 ดูเฉพาะ</span>
+          <div className="weak-topics">
+            {FILTERS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`weak-topic-btn${reviewFilter === key ? " active" : ""}`}
+                onClick={() => setReviewFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {problems.map((p, i) => {
           const r = resultById[p.id];
+          if (reviewFilter !== "all" && debrief.buckets[p.id] !== reviewFilter) return null;
           return (
             <div key={p.id} className={`card exam-review-card ${r.correct ? "correct" : "wrong"}`}>
               <span className="tag">
                 ข้อ {i + 1} · {r.earnedPoints}/{r.points} คะแนน {r.correct ? "✓" : "✗"}
+                {!r.correct && BUCKET_LABEL[debrief.buckets[p.id]]
+                  ? ` · ${BUCKET_LABEL[debrief.buckets[p.id]]}`
+                  : ""}
               </span>
               <p className="problem">
                 <MathText>{p.statement}</MathText>

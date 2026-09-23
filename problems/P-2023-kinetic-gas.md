@@ -11,4 +11,4 @@ id: P-2023
 ตัวเลือก E: $u\sqrt{\frac{mR}{Mk_B}}$
 คำตอบ: E
 เฉลย: $v_{rms} = \sqrt{\frac{3k_BT}{m}} = u$ → $3k_BT = mu^2$. แก๊ส B: $v_{rms,B} = \sqrt{\frac{3RT}{M}}$. ใช้ $R = k_BN_A$: $= \sqrt{\frac{3k_BT\,N_A}{M}} = \sqrt{\frac{mu^2 N_A}{M}}$ และ $N_A = \frac{R}{k_B}$ → $= u\sqrt{\frac{mR}{Mk_B}}$
-trap: ตอบ B — เอามวลต่อโมล M ปนกับมวลต่ออะตอม m ตรง ๆ ลืมพจน์ค่าคงตัว $R$, $k_B$
+trap: ตอบ B — เอามวลต่อโมล M ปนกับมวลต่ออะตอม m ตรง ๆ ลืมพจน์ค่าคงตัว $R$, $k_B$ #พลาด/นิยาม
