@@ -176,10 +176,18 @@ on conflict (user_id) do update
                 s.presence?.updated_at &&
                 Date.now() - new Date(s.presence.updated_at).getTime() < 2 * 60 * 1000 ? (
                   <div>
-                    🟢 กำลังทำ <strong>{s.presence.problem_id}</strong>
+                    🟢 กำลังทำ{" "}
+                    <Link href={`/problem/${s.presence.problem_id}`} className="next-link">
+                      <strong>{s.presence.problem_id} →</strong>
+                    </Link>
                   </div>
                 ) : s.presence?.problem_id ? (
-                  <div className="subtitle">ล่าสุดทำ {s.presence.problem_id}</div>
+                  <div className="subtitle">
+                    ล่าสุดทำ{" "}
+                    <Link href={`/problem/${s.presence.problem_id}`} className="next-link">
+                      {s.presence.problem_id} →
+                    </Link>
+                  </div>
                 ) : null}
                 <div className="subtitle">
                   {s.last_reviewed_at

@@ -1,6 +1,6 @@
 import { createServerSupabase } from "../../../../lib/supabaseServer";
 import { getAllFullById } from "../../../../lib/problems";
-import { buildReport } from "../../../../lib/report";
+import { buildReport, buildRecentItems } from "../../../../lib/report";
 import { buildTrapBook } from "../../../../lib/trapMastery";
 
 export const dynamic = "force-dynamic";
@@ -84,5 +84,17 @@ export async function POST(request) {
       .eq("user_id", studentId);
   }
 
-  return Response.json({ student, report, trapBook, trapBookRecent });
+  return Response.json({
+    student,
+    report,
+    trapBook,
+    trapBookRecent,
+    // รายการราบใหม่สุดก่อนไว้โชว์เป็นข้อๆ (กดอ่านแล้วซ่อนจากจอ แต่ข้อมูลยังอยู่ใน DB)
+    recentItems: buildRecentItems({
+      attempts: attempts || [],
+      problemsById,
+      since: student.last_reviewed_at,
+      transcriptsBySession,
+    }),
+  });
 }
