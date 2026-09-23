@@ -9,6 +9,7 @@ export default function TeacherClient() {
   const [msg, setMsg] = useState("");
   const [me, setMe] = useState(null);
   const [students, setStudents] = useState([]);
+  const [stats, setStats] = useState(null); // สถิติรายข้อข้ามเด็ก (ไว้คัด mock)
   const [editing, setEditing] = useState(null); // user_id ที่กำลังแก้
   const [draft, setDraft] = useState({});
 
@@ -28,6 +29,13 @@ export default function TeacherClient() {
     setMe(data.me);
     setStudents(data.students);
     setState("ready");
+    // โหลดสถิติรายข้อแยกอีกเส้น — พังได้โดยไม่ล้มทั้งหน้า
+    fetch("/api/teacher/problem-stats", { headers: { Authorization: `Bearer ${t}` } })
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.stats)) setStats(d.stats);
+      })
+      .catch(() => {});
   }
 
   useEffect(() => {
@@ -164,6 +172,15 @@ on conflict (user_id) do update
                   {s.grade || "—"} ·{" "}
                   {s.max_difficulty ? `ไม่เกินระดับ ${s.max_difficulty}` : "ไม่จำกัดระดับ"}
                 </span>
+                {s.presence?.problem_id &&
+                s.presence?.updated_at &&
+                Date.now() - new Date(s.presence.updated_at).getTime() < 2 * 60 * 1000 ? (
+                  <div>
+                    🟢 กำลังทำ <strong>{s.presence.problem_id}</strong>
+                  </div>
+                ) : s.presence?.problem_id ? (
+                  <div className="subtitle">ล่าสุดทำ {s.presence.problem_id}</div>
+                ) : null}
                 <div className="subtitle">
                   {s.last_reviewed_at
                     ? `เปิดรายงานล่าสุด ${new Date(s.last_reviewed_at).toLocaleDateString("th-TH")}`
@@ -182,6 +199,32 @@ on conflict (user_id) do update
           )}
         </div>
       ))}
+
+      <div className="card">
+        <h2>ข้อที่เด็กติดบ่อย (ไว้คัดออก mock)</h2>
+        {!stats ? (
+          <p className="subtitle">กำลังรวมสถิติ…</p>
+        ) : stats.length === 0 ? (
+          <p className="subtitle">ยังไม่มีข้อมูลพอ — ให้เด็กทำโจทย์ก่อน</p>
+        ) : (
+          <table className="topic-table">
+            <tbody>
+              {stats.slice(0, 20).map((s) => (
+                <tr key={s.problemId}>
+                  <td>
+                    <Link href={`/problem/${s.problemId}`}>{s.problemId}</Link> · {s.topic}
+                    <div className="subtitle">{s.statement}</div>
+                  </td>
+                  <td className="num">
+                    ผิด {s.wrong}/{s.attempts} ({s.wrongRate}%) · ถาม {s.questions} ·{" "}
+                    {s.medianSeconds != null ? `${s.medianSeconds} วิ` : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }

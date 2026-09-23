@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase, isSupabaseReady } from "../../../lib/supabaseClient";
 import MathText from "../../MathText";
+import WeeklyLetter from "./WeeklyLetter";
 
 const HEAT = (n) => (n >= 5 ? "🔴" : n >= 3 ? "🟠" : n >= 2 ? "🟡" : "🟢");
 
@@ -25,13 +26,19 @@ function Item({ it }) {
   return (
     <li>
       <span className="subtitle">
-        {new Date(it.createdAt).toLocaleDateString("th-TH")} · {it.problemId} · {it.topic}
+        {it.createdAt ? new Date(it.createdAt).toLocaleDateString("th-TH") : "—"} · {it.problemId} · {it.topic}
         {it.examSet ? ` · ${it.examSet}` : ""}
         {time ? ` · ใช้เวลา ${time}` : ""}
         {it.hintCount ? ` · คำใบ้ ${it.hintCount} ครั้ง` : ""}
       </span>
       <div>
-        ตอบ <code>{it.answer}</code>
+        {it.orphan ? (
+          <span className="subtitle">ถามโดยยังไม่ส่งคำตอบ · ใช้เวลา {time || "—"}</span>
+        ) : (
+          <>
+            ตอบ <code>{it.answer}</code>
+          </>
+        )}
         {it.misconception ? (
           <>
             {" "}
@@ -69,8 +76,47 @@ function Item({ it }) {
   );
 }
 
+function Questions({ list }) {
+  const [open, setOpen] = useState(false);
+  if (!list || !list.length) return null;
+  const shown = open ? list : list.slice(0, 5);
+  return (
+    <>
+      <h3>คำถามที่เด็กพิมพ์ถาม ({list.length})</h3>
+      <ul className="tag-items">
+        {shown.map((q, i) => (
+          <li key={`${q.sessionKey}-${i}`}>
+            <span className="subtitle">
+              {q.createdAt ? new Date(q.createdAt).toLocaleDateString("th-TH") : ""} ·{" "}
+              {q.problemId || ""} {q.topic ? `· ${q.topic}` : ""}
+              {typeof q.secondsOnProblem === "number" ? ` · นาทีที่ ${mmss(q.secondsOnProblem)}` : ""}
+            </span>
+            <div>
+              ถาม: <MathText>{q.text}</MathText>
+            </div>
+            {q.reply && (
+              <div className="subtitle">
+                AI ตอบ: <MathText>{q.reply}</MathText>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {list.length > 5 && (
+        <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
+          {open ? "ย่อ" : `ดูทั้งหมด ${list.length} คำถาม`}
+        </button>
+      )}
+    </>
+  );
+}
+
 function Section({ title, hint, data, open, setOpen }) {
-  if (!data.totals.attempts) return <p className="subtitle">— ไม่มีข้อมูลในช่วงนี้ —</p>;
+  const hasAny =
+    (data.totals.attempts || 0) > 0 ||
+    (data.totals.orphanSessions || 0) > 0 ||
+    (data.recentQuestions || []).length > 0;
+  if (!hasAny) return <p className="subtitle">— ไม่มีข้อมูลในช่วงนี้ —</p>;
 
   return (
     <>
@@ -78,10 +124,15 @@ function Section({ title, hint, data, open, setOpen }) {
         {hint} · ทำไป <strong>{data.totals.attempts}</strong> ครั้ง · ผิด{" "}
         <strong>{data.totals.wrong}</strong> · ขอคำใบ้ {data.totals.hints} ครั้ง
         {data.totals.questions ? ` · น้องพิมพ์ถาม ${data.totals.questions} ครั้ง` : ""}
+        {data.totals.orphanSessions
+          ? ` · ถามโดยยังไม่ส่ง ${data.totals.orphanSessions} session`
+          : ""}
         {data.totals.medianSeconds
           ? ` · เวลาต่อข้อโดยทั่วไป ${mmss(data.totals.medianSeconds)}`
           : ""}
       </p>
+
+      <Questions list={data.recentQuestions} />
 
       {data.byTag.length > 0 && (
         <>
@@ -142,6 +193,55 @@ function Section({ title, hint, data, open, setOpen }) {
   );
 }
 
+const TRAP_STATUS = {
+  slain: "✅ ปราบแล้ว",
+  chasing: "🎯 กำลังไล่",
+  bitten: "🔴 ยังโดนกิน",
+  unbitten: "🟢 ยังไม่เคยพลาด",
+  unseen: "⚪ ยังไม่เจอ",
+};
+
+function TrapBook({ book }) {
+  const [open, setOpen] = useState(false);
+  if (!book) return null;
+  const s = book.summary;
+  const active = book.tags.filter((t) => t.status === "bitten" || t.status === "chasing");
+  return (
+    <>
+      <h3>สมุดกับดัก</h3>
+      <p className="subtitle">
+        ✅ {s.slain} · 🎯 {s.chasing} · 🔴 {s.bitten} · เจอมา {s.total - s.unseen} ตระกูล
+      </p>
+      {active.length > 0 ? (
+        <>
+          <ul className="tag-items">
+            {(open ? active : active.slice(0, 5)).map((t) => (
+              <li key={t.tag}>
+                <strong>{t.tag}</strong>{" "}
+                <span className="subtitle">
+                  {TRAP_STATUS[t.status]} · ตก {t.hits} · ผ่านเปลือกใหม่ {t.passes}
+                </span>
+                {t.example && (
+                  <div className="subtitle">
+                    <MathText>{t.example}</MathText>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {active.length > 5 && (
+            <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
+              {open ? "ย่อ" : `ดูทั้งหมด ${active.length} ตระกูลที่ยังไม่ปราบ`}
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="subtitle">ไม่มีตระกูลค้าง — ปราบหมดแล้วหรือยังไม่เคยตกกับดักเลย</p>
+      )}
+    </>
+  );
+}
+
 export default function ReportClient({ studentId }) {
   const [state, setState] = useState("loading");
   const [msg, setMsg] = useState("");
@@ -174,7 +274,7 @@ export default function ReportClient({ studentId }) {
   if (state === "noauth") return <p className="subtitle">กรุณาเข้าสู่ระบบด้วยบัญชีผู้สอน</p>;
   if (state === "error") return <p className="subtitle">⚠️ {msg}</p>;
 
-  const { student, report } = data;
+  const { student, report, trapBook, trapBookRecent } = data;
 
   return (
     <>
@@ -197,6 +297,7 @@ export default function ReportClient({ studentId }) {
           open={openRecent}
           setOpen={setOpenRecent}
         />
+        <TrapBook book={trapBookRecent} />
         <button
           type="button"
           className="btn"
@@ -220,6 +321,11 @@ export default function ReportClient({ studentId }) {
           open={openAll}
           setOpen={setOpenAll}
         />
+        <TrapBook book={trapBook} />
+      </div>
+
+      <div className="card">
+        <WeeklyLetter studentId={studentId} />
       </div>
     </>
   );

@@ -36,7 +36,17 @@ export async function GET(request) {
     .order("created_at", { ascending: true });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ me, students: students || [] });
+
+  // สถานะ live ของนักเรียนแต่ละคน (ตาราง presence จาก migration 007)
+  // ถ้ายังไม่ migrate ตารางจะ error — ปล่อย presence ว่างไว้ หน้าเว็บยังใช้ได้
+  let presenceById = {};
+  const ids = (students || []).map((s) => s.user_id);
+  if (ids.length) {
+    const { data: pres } = await sb.from("presence").select("user_id, problem_id, updated_at").in("user_id", ids);
+    for (const p of pres || []) presenceById[p.user_id] = p;
+  }
+  const withPresence = (students || []).map((s) => ({ ...s, presence: presenceById[s.user_id] || null }));
+  return Response.json({ me, students: withPresence });
 }
 
 // แก้ข้อมูลนักเรียน (ชื่อเล่น / ระดับชั้น / เพดานระดับความยาก) หรือตั้งรหัสครูของตัวเอง

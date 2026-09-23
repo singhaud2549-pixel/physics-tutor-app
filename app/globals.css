@@ -765,6 +765,12 @@ code {
   border-color: #d97706;
 }
 
+.weak-topic-btn.active {
+  background: #b45309;
+  color: #fff;
+  border-color: #b45309;
+}
+
 .misconception-line {
   font-size: 14px;
   font-weight: 600;
@@ -812,6 +818,7 @@ h1 {
 .student-actions { display: flex; align-items: center; gap: 12px; }
 .inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .text-input { padding: 8px 10px; border: 2px solid #ddd; border-radius: 8px; font: inherit; width: 100%; max-width: 220px; }
+.letter-box { width: 100%; max-width: 100%; min-height: 220px; padding: 10px 12px; border: 2px solid #ddd; border-radius: 8px; font: inherit; line-height: 1.7; }
 .text-input.short { max-width: 130px; }
 .code-block { background: #f5f5f5; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 0.85em; white-space: pre; }
 

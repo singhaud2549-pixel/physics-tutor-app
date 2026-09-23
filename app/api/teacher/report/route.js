@@ -1,6 +1,7 @@
 import { createServerSupabase } from "../../../../lib/supabaseServer";
 import { getAllFullById } from "../../../../lib/problems";
 import { buildReport } from "../../../../lib/report";
+import { buildTrapBook } from "../../../../lib/trapMastery";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +43,11 @@ export async function POST(request) {
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
   // บทสนทนากับ AI — จำกัดจำนวนไว้กันรายงานบวม (พอสำหรับหลายสิบข้อล่าสุด)
+  // ต้องมี problem_id มาด้วย ไม่งั้น session ที่ถามอย่างเดียวไม่กดส่ง (orphan)
+  // จะระบุไม่ได้ว่าเป็นข้อไหนแล้วหลุดจากรายงานทั้งหมด
   const { data: messages } = await sb
     .from("hint_messages")
-    .select("session_key, seq, role, text, seconds_on_problem, created_at")
+    .select("session_key, seq, role, text, seconds_on_problem, created_at, problem_id")
     .eq("user_id", studentId)
     .order("created_at", { ascending: false })
     .limit(1500);
@@ -55,12 +58,22 @@ export async function POST(request) {
     transcriptsBySession[k].sort((a, b) => a.seq - b.seq);
   }
 
+  const problemsById = getAllFullById();
   const report = buildReport({
     attempts: attempts || [],
-    problemsById: getAllFullById(),
+    problemsById,
     since: student.last_reviewed_at,
     transcriptsBySession,
   });
+
+  // สมุดกับดักรายคน — ทั้งสะสมทั้งหมดและเฉพาะตั้งแต่คาบที่แล้ว
+  const recentAttempts = student.last_reviewed_at
+    ? (attempts || []).filter(
+        (a) => a.created_at && a.created_at > student.last_reviewed_at,
+      )
+    : attempts || [];
+  const trapBook = buildTrapBook({ attempts: attempts || [], problemsById });
+  const trapBookRecent = buildTrapBook({ attempts: recentAttempts, problemsById });
 
   // ขยับจุดตัด "ตั้งแต่คาบที่แล้ว" เฉพาะตอนผู้สอนกดยืนยันเท่านั้น
   // (ถ้าขยับทุกครั้งที่เปิดหน้า เผลอรีเฟรชแล้วข้อมูลช่วงนี้จะหายไป)
@@ -71,5 +84,5 @@ export async function POST(request) {
       .eq("user_id", studentId);
   }
 
-  return Response.json({ student, report });
+  return Response.json({ student, report, trapBook, trapBookRecent });
 }

@@ -76,6 +76,27 @@ export default function ProblemClient({ problem }) {
       });
   }, [thread, streaming, userId, problem.id]);
 
+  // heartbeat บอกครูว่ากำลังทำข้อไหนอยู่ (ตาราง presence) — ทุก 30 วิ + ครั้งแรกที่เปิด
+  // ถ้า server ยังไม่ migrate ตารางนี้จะ 500 เงียบ ๆ ไม่มีผลกับการทำโจทย์
+  useEffect(() => {
+    if (!accessToken || !problem.id) return;
+    let alive = true;
+    const beat = () => {
+      if (!alive) return;
+      fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ problemId: problem.id }),
+      }).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [accessToken, problem.id]);
+
   // ทั้งหน้า = แผ่นที่เขียนทับได้ (รอยเขียนอยู่ในเครื่องน้องเท่านั้น ไม่ได้ส่งไปเก็บที่ไหน)
   const sheetRef = useRef(null);
 
